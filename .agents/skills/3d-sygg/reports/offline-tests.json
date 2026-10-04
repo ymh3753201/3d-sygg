@@ -1,0 +1,13 @@
+{
+  "date": "2026-10-04",
+  "version": "v2.1.0",
+  "platform": "macOS",
+  "python": "3.14.0",
+  "tests": 184,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "blocked_external_attempts": [],
+  "paid_generation_executed": false,
+  "notes": "Offline validation; does not certify live channel or creative/audio quality."
+}

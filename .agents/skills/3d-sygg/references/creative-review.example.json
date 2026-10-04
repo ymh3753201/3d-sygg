@@ -1,0 +1,12 @@
+{
+  "reviewer": "codex-visual-review",
+  "checks": {
+    "storyboard_sequence_followed": true,
+    "product_identity_preserved": true,
+    "approved_copy_only": true,
+    "no_collage_grid_or_unwanted_text": true,
+    "visual_quality_professional": true,
+    "audio_review_passed": true
+  },
+  "notes": "逐镜对照已批准分镜、检查商品与文字，并实际试听后填写。"
+}

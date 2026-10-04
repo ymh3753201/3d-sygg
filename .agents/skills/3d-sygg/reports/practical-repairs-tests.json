@@ -1,0 +1,19 @@
+{
+  "tests": 184,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "blocked_external_attempts": [],
+  "date": "2026-09-29",
+  "base_commit": "aa098a5",
+  "paid_generation_calls": 0,
+  "additional_development_regressions": 9,
+  "additional_user_confirmation_stages": 0,
+  "synthetic_media": {
+    "source_frames_per_clip": 149,
+    "clip_count": 6,
+    "repaired_final_frames": 900,
+    "target_frames": 900
+  },
+  "live_ad_visual_acceptance": "not_performed"
+}

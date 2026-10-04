@@ -1,0 +1,6 @@
+interface:
+  display_name: "3D sygg"
+  short_description: "保留多宫格分镜，兼容多种模型与长视频，按同一广告设计生成并剪辑成片"
+  default_prompt: "Use $3d-sygg to turn my product image into a reviewed professional 3D commercial video."
+policy:
+  allow_implicit_invocation: true
