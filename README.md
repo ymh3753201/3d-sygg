@@ -4,6 +4,10 @@
 
 这是供 **Codex 使用的 Skill**，不是打开就能运行的独立网页软件，也不是完整的 3D 建模工具。源码免费开放；生图、视频与旁白服务可能收费，需要你自己的账号和使用额度。
 
+## 零基础学员入口
+
+先看 [完整教程与三份提示词](docs/ZERO-TO-VIDEO.md)：下载安装 → 配置审查（区分官方与中转 API）→ 两次确认后制作广告。
+
 ## 快速开始
 
 1. 按 [安装指南](docs/INSTALL.md) 安装 Python、FFmpeg、cloudflared，并把 Skill 放入项目的 `.agents/skills/3d-sygg`。

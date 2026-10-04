@@ -7,7 +7,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / '.agents/skills/3d-sygg'
-VERSION = 'v2.1.0'
+VERSION = 'v2.1.1'
 REPORTS = {'offline-tests.json', 'practical-repairs-20260929.md',
            'practical-repairs-tests.json', 'upgrade-validation.md'}
 
@@ -40,10 +40,10 @@ def main():
         for name in ('README.md', 'LICENSE', 'CHANGELOG.md', 'CONTRIBUTING.md', 'SECURITY.md'):
             content = (ROOT / name).read_text().replace('.agents/skills/3d-sygg/', '')
             package.writestr('3d-sygg/' + name, content)
-        for path in sorted((ROOT / 'docs').glob('*.md')):
+        for path in sorted((ROOT / 'docs').rglob('*.md')):
             # ZIP is installed as a standalone Skill, unlike the repository layout.
             content = path.read_text().replace('../.agents/skills/3d-sygg/', '../')
-            package.writestr('3d-sygg/docs/' + path.name, content)
+            package.writestr('3d-sygg/docs/' + str(path.relative_to(ROOT / 'docs')), content)
     checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
     (args.output / 'SHA256SUMS.txt').write_text(f'{checksum}  {archive.name}\n')
     print(f'{archive}: {checksum}')
