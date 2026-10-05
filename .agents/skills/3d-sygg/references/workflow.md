@@ -2,7 +2,7 @@
 
 # 工作流字段
 
-新项目 `schema_version=8`。版本 7 保留已知任务恢复入口，不自动迁移批准内容，不允许旧项目重新付费。更早版本需单独核对旧账本，不应直接改版本号冒充兼容。
+新项目 `schema_version=10`，声音路由见 [声音规则](voice-routing.md)。schema 8/9 的已批准声音方案保留。版本 7 保留已知任务恢复入口，不自动迁移批准内容，不允许旧项目重新付费。更早版本需单独核对旧账本，不应直接改版本号冒充兼容。
 
 状态：`awaiting_plan_approval → awaiting_reference_approval → approved_for_generation → generating → awaiting_manual_review → delivered`。异常为 `failed` / `submission_unknown`。技术合格后仍待看图、观看与试听，不自动交付。
 
@@ -10,7 +10,7 @@
 
 `analysis` 必填：`source_images`（1–6 个绝对路径）、`product_type`、`visible_features`、`materials`、`colors`（#RRGGBB 数组）、`uncertainties`。`logo_text` 可选。脚本将原图保存到项目私有 `private/source-images/`，冻结 SHA-256 和解码像素指纹，并把 analysis.source_images 指向持久快照。original_path 保留来源位置；临时剪贴板消失不影响后续生图。快照不在参考图登记目录或发布白名单内，只供生图与事实核对。
 
-`plan` 必填：`big_idea`、`style_rationale`、`story_arc`、`audiovisual_tone`、`global_anchor`、`style`、`aspect_ratio`、`aspect_ratio_reason`、`palette`（primary/secondary/rim）、`ad_copy`（已批准的短标题/品牌字清单，数量按时长与阅读节奏决定）、`talent_strategy`、`narration`、`clips`。风格枚举见 [视觉原则](visual-standards.md)。面向受众与使用场景的判断写入 Big Idea 与选择理由，不另加重复审批字段。
+`plan` 必填：`big_idea`、`style_rationale`、`story_arc`、`audiovisual_tone`、`global_anchor`、`style`、`aspect_ratio`、`aspect_ratio_reason`、`palette`（primary/secondary/rim）、`ad_copy`（已批准的短标题/品牌字清单，数量按时长与阅读节奏决定）、`talent_strategy`、`clips`；`audio` 和 `narration` 省略时脚本填入视频原生声音默认值。风格枚举见 [视觉原则](visual-standards.md)。面向受众与使用场景的判断写入 Big Idea 与选择理由，不另加重复审批字段。
 
 纯产品人物策略：
 
@@ -20,7 +20,9 @@
 
 人物模式：`mode=human_interaction`、`adult_only=true`、`framing` 为 hands_only/partial_body/face_and_body，必填 `persona`、`wardrobe`、`grooming`、`identity_anchor`、非空 `interaction_actions`；需要出镜的段写 `talent_action`，不出镜的段留空。允许混合；至少一段确实出镜才使用人物模式。具体内容由商品和广告创意决定。
 
-无旁白：`{"enabled":false,"reason":"用户明确要求纯音效，或具体视觉叙事理由"}`；text 必须留空，不能用 enabled=false 丢弃已写好的朗读文稿。有旁白：`enabled=true`，必填 `text`、`voice_id`、`voice_name`、`reason`；`speed` 可选，范围 0.5–2。音色必须来自当前账号查询，不照抄文档示例 ID。`start_time/end_time` 可选，为全片开口和最晚结束秒数，默认 0/成片时长；实际音频必须落在窗口内。
+默认 `audio={"mode":"video","speech":true}`；`narration={"enabled":false,"text":"","reason":"视频模型输出声音"}` 表示不使用独立语音，不表示禁人声。台词与声音方向写在 `clips[].audio` 的 `speech_text/voice/music/ambience`，逐镜生成改用 `shots[].audio`。无台词留空，明确不要人声时 audio.speech=false。
+
+独立语音仅在用户明确请求后使用：`audio.mode=external`、`audio.user_requested_external=true`（或 narration.user_requested=true）；`narration.enabled=true`，必填 text/voice_id/voice_name/reason。speed 可选 0.5–2；start_time/end_time 是全片开口和最晚结束秒数。音色必须从当前账号查询，实际音频须落在窗口内。
 
 每段 `clips[]`：
 

@@ -7,8 +7,8 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / '.agents/skills/3d-sygg'
-VERSION = 'v2.1.3'
-REPORTS = {'offline-tests.json', 'practical-repairs-20260929.md',
+VERSION = 'v2.2.0'
+REPORTS = {'audio-default-policy.md', 'offline-tests.json', 'practical-repairs-20260929.md',
            'practical-repairs-tests.json', 'upgrade-validation.md'}
 
 

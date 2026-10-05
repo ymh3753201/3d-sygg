@@ -26,7 +26,8 @@
 |---|---|---|
 | 生图 | Codex 内置 `imagegen`，生成商品母版、人物与分镜 | 支持内置生图的 Codex 环境、对应权限与额度；本仓库没有通用生图 API 适配器 |
 | 视频 | 默认 wxart Omni，可切换沧元适配通道 | 对应供应商的 API Key 与模型使用额度 |
-| 中文旁白 | MiniMax `speech-2.8-hd` | 启用旁白时配置 `MINIMAX_API_KEY` |
+| 人声与声音 | 默认由视频模型直接输出 | 人声、音效、背景音乐与环境音无需独立语音 Key |
+| 独立配音（选用） | MiniMax `speech-2.8-hd` | 只有明确要求单独使用语音模型才配置 `MINIMAX_API_KEY` |
 | 本地剪辑 | FFmpeg / ffprobe | 安装本地工具，无需剪辑 API |
 | 视频参考图传输 | cloudflared 临时 HTTPS 隧道 | 安装工具且网络能够连接；只公开确认清单中的生成参考图 |
 

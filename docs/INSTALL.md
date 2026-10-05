@@ -26,7 +26,7 @@ cd 3d-sygg
 python3 .agents/skills/3d-sygg/scripts/commercial_ad.py capabilities
 ```
 
-方式 B：把 Skill 安装到自己的工作项目。先下载 [Release](https://github.com/ymh3753201/3d-sygg/releases/latest) 中的 `3d-sygg-v2.1.3.zip`，解压得到 `3d-sygg/`。将这个文件夹放入工作项目的 `.agents/skills/`，最终结构必须是：
+方式 B：把 Skill 安装到自己的工作项目。先下载 [Release](https://github.com/ymh3753201/3d-sygg/releases/latest) 中的 `3d-sygg-v2.2.0.zip`，解压得到 `3d-sygg/`。将这个文件夹放入工作项目的 `.agents/skills/`，最终结构必须是：
 
 ```text
 你的项目/

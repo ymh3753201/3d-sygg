@@ -188,6 +188,8 @@ def prepare_timeline(plan, target_duration, cap, strategy='auto', validation_run
     expanded=[]
     for c,n,o in zip(clips,durations,overlaps):
         if c['execution_strategy']=='per_shot' and len(c['shots'])>1:
+            if c.get('audio', {}).get('speech_text') and not all('audio' in s for s in c['shots']):
+                raise ValidationError('逐镜生成须逐镜安排 shots[].audio，不能在每镜重复整段台词')
             weights=[float(s.get('duration_weight',1)) for s in c['shots']]
             if any(not math.isfinite(w) or w<=0 for w in weights):
                 raise ValidationError('Shot weights must be positive')
@@ -195,6 +197,8 @@ def prepare_timeline(plan, target_duration, cap, strategy='auto', validation_run
             for j,s in enumerate(c['shots']):
                 end=round(n*sum(weights[:j+1])/sum(weights))
                 item=copy.deepcopy(c)
+                if 'audio' in s:
+                    item['audio'] = copy.deepcopy(s['audio'])
                 item.update(shots=[s],narrative_role=f"{c['narrative_role']} / {s['shot_id']}",
                             director_clip_index=c['index'], overlap_frames=o if j==0 else 0,
                             keep_frames=end-prior, camera=s['camera'], visual_progression=s['visual'],
@@ -249,6 +253,8 @@ def budget_contract(plan, count, narration_calls):
     if budget['max_video_attempts']>limit:
         raise ValidationError('Video budget exceeds approved per-clip recovery limit')
     if 'max_cost_cny' in budget:
+        if narration_calls == 0:
+            budget.setdefault('narration_call_upper_cny', 0)
         for key in ('max_cost_cny','video_call_upper_cny','narration_call_upper_cny'):
             if isinstance(budget.get(key),bool) or not isinstance(budget.get(key),(int,float)) or not math.isfinite(budget[key]) or budget[key]<0:
                 raise ValidationError('Money caps require nonnegative cost upper bounds for both video and narration')

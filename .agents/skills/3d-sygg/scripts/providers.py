@@ -364,10 +364,12 @@ class Keychain:
         return secret
 
     @classmethod
-    def bootstrap(cls) -> dict[str, dict[str, str | bool]]:
+    def bootstrap(cls, *, services=None) -> dict[str, dict[str, str | bool]]:
         result: dict[str, dict[str, str | bool]] = {}
         for label, service in (("omni", OMNI_KEYCHAIN_SERVICE), ("cangyuan", CANGYUAN_KEYCHAIN_SERVICE),
                                ("minimax", MINIMAX_KEYCHAIN_SERVICE)):
+            if services is not None and service not in services:
+                continue
             secret, source = cls.resolve(service, KEYCHAIN_ACCOUNT)
             result[label] = {
                 "service": service,

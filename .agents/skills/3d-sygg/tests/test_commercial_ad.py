@@ -122,6 +122,7 @@ def sample_plan(clip_count: int = 1, narration: bool = False, human: bool = Fals
         "talent_strategy": talent_strategy,
         "narration": {
             "enabled": narration,
+            "user_requested": narration,
             "text": "让每一次播放，都释放清晰能量。" if narration else "",
             "voice_id": "Chinese (Mandarin)_Reliable_Executive" if narration else "",
             "voice_name": "沉稳高管" if narration else "",
@@ -434,7 +435,7 @@ class StateWorkflowTests(unittest.TestCase):
         orchestrator = self._project()
         state = orchestrator.load()
         self.assertEqual(state["state"], "awaiting_plan_approval")
-        self.assertEqual(state["schema_version"], 9)
+        self.assertEqual(state["schema_version"], 10)
         self.assertEqual(state["target"]["width"], 720)
         self.assertEqual(state["target"]["height"], 1280)
         self.assertEqual(state["target"]["resolution"], "720p")
@@ -1044,7 +1045,7 @@ class StateWorkflowTests(unittest.TestCase):
                     commercial_ad, "stitch_clips", side_effect=fake_stitch
                 ), mock.patch.object(commercial_ad, "extract_review_frames", return_value=[]), mock.patch.object(
                     commercial_ad, "write_qa_report", return_value={"status": "pass"}
-                ):
+                ), mock.patch.object(commercial_ad, "probe_media", return_value={"has_audio": True, "audio_duration": 10}):
                     project._assemble(project.load(), raw, None)
                 self.assertEqual([call.args[2] for call in normalize.call_args_list], expected)
 
@@ -1083,7 +1084,7 @@ class StateWorkflowTests(unittest.TestCase):
         manifest["final_video"] = str(final)
         manifest_path.write_text(json.dumps(manifest))
         commercial_ad.atomic_write_json(orchestrator.project_dir / "assembly.json", {
-            "target": state["target"], "narration": None,
+            "target": state["target"], "narration": None, "audio": state["provider_contract"]["audio"],
             "clips": [{"clip_index": 1, "path": str(final), "sha256": commercial_ad.sha256_file(final)}]})
         checks = {key: True for key in commercial_ad.CREATIVE_REVIEW_CHECKS}
         checks["storyboard_sequence_followed"] = False

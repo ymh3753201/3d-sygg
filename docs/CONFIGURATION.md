@@ -16,10 +16,10 @@
 |---|---|---|
 | 默认视频 | `WXART_OMNI_API_KEY`，也接受 `WXART_API_KEY` / `OMNI_API_KEY` | `https://api.wxart.space` / `omni-flash` |
 | 沧元视频及 Omni 备援 | `CANGYUAN_API_KEY`，也接受 `CANGYUAN_OMNI_API_KEY` | `https://ai.cangyuansuanli.cn` / 见下面的模型表 |
-| 旁白 | `MINIMAX_API_KEY` | `https://api.minimaxi.com` / `speech-2.8-hd` |
+| 独立配音（选用） | `MINIMAX_API_KEY` | `https://api.minimaxi.com` / `speech-2.8-hd` |
 | MiniMax 区域地址（可选） | `MINIMAX_BASE_URL` | 根据你的 MiniMax 账号区域配置官方地址 |
 
-只需配置实际使用的视频供应商，启用旁白再配置 MiniMax。Omni 自动备援要使用时才配置沧元密钥。视频端点目前由适配器固定，不能通过随意填写 `VIDEO_BASE_URL` 接入任何供应商。
+只需配置实际使用的视频供应商，默认由视频模型生成人声、音效、背景音乐与环境音，只有明确要求单独使用语音模型才配置 MiniMax。Omni 自动备援要使用时才配置沧元密钥。视频端点目前由适配器固定，不能通过随意填写 `VIDEO_BASE_URL` 接入任何供应商。
 
 macOS / Linux 可以在运行 Codex 或脚本的**同一个终端会话**中，隐藏输入密钥：
 
@@ -28,9 +28,6 @@ macOS / Linux 可以在运行 Codex 或脚本的**同一个终端会话**中，�
 read -r -s -p 'wxart video key: ' WXART_OMNI_API_KEY
 printf '\n'
 export WXART_OMNI_API_KEY
-read -r -s -p 'MiniMax narration key: ' MINIMAX_API_KEY
-printf '\n'
-export MINIMAX_API_KEY
 ```
 
 使用沧元时，把第一组变量名改为 `CANGYUAN_API_KEY`。不要把真实 Key 放进聊天、截图、方案或 Git。终端环境变量不会自动传入已经打开的 Codex 桌面进程；桌面用户推荐下面的 macOS 钥匙串方式，或者在启动 Codex 前配置它实际继承的环境。
@@ -38,13 +35,13 @@ export MINIMAX_API_KEY
 macOS 钥匙串方式，在 Skill 根目录运行：
 
 ```bash
-# 隐藏输入并保存 wxart 与 MiniMax 两个 Key
+# 隐藏输入并保存 wxart 视频 Key；默认无需语音 Key
 python3 scripts/setup_keys.py --interactive
-# 可选：单独保存沧元 Key
+# 使用沧元视频时：单独保存沧元 Key
 python3 scripts/setup_keys.py --interactive-cangyuan
 ```
 
-两者可按需分别执行。钥匙串服务为 `3d-sygg-omni`、`3d-sygg-cangyuan`、`3d-sygg-minimax`，账号均为 `api-key`。无参数的 `setup_keys.py` 是全部三组凭据的诊断，不是最小安装必需步骤；只配置一种视频供应商时，它可能报告其他凭据缺失。
+只有明确需要独立配音时，另运行 `python3 scripts/setup_keys.py --interactive-minimax`。钥匙串服务为 `3d-sygg-omni`、`3d-sygg-cangyuan`、`3d-sygg-minimax`，账号均为 `api-key`。无参数的 `setup_keys.py` 只检查当前配置的视频服务；明确启用独立配音时再加 `--with-narration` 检查 MiniMax。
 
 脚本**不会自动加载 `.env`**。环境变量优先，其次是 macOS 钥匙串。可选 `SYGG_OMNI_KEY_SOURCE` / `SYGG_CANGYUAN_KEY_SOURCE` / `SYGG_MINIMAX_KEY_SOURCE` 指向你自己明确指定的本地密钥文件，迁移到钥匙串；该方式要求 macOS。开源版不搜索作者机器的私有目录。
 
@@ -71,7 +68,7 @@ python3 scripts/commercial_ad.py configure --model mm2-minimax-h3
 
 以上是仓库中的适配合同，不是供应商实时可用性承诺。正式付费前用 `check-channel --model 选择值` 核对目录，再按 [实片验证规则](../.agents/skills/3d-sygg/references/live-validation.md) 判断是否需要验证。新通道的验证记录未随私有素材一起公开，不能视为已经自动合格。
 
-`configure` 生成 `config/config.local.json`，只存模型、供应商、输出分辨率与策略，禁止存 Key。旁白音色由 AI 查询当前系统音色后纳入方案。
+`configure` 生成 `config/config.local.json`，只存模型、供应商、输出分辨率与策略，禁止存 Key。默认视频原生音色与台词由 AI 纳入方案；只有独立配音模式才查询 MiniMax 系统音色。
 
 ## 4. 费用与参考图公开
 

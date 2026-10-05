@@ -36,20 +36,22 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--interactive",
         action="store_true",
-        help="maintenance-only: replace both credentials using hidden input",
+        help="maintenance-only: replace the wxart video credential using hidden input",
     )
     parser.add_argument(
         "--interactive-cangyuan",
         action="store_true",
         help="maintenance-only: replace the Cangyuan fallback credential using hidden input",
     )
+    parser.add_argument("--interactive-minimax", action="store_true", help="explicit standalone narration only: save MiniMax key")
+    parser.add_argument("--with-narration", action="store_true", help="explicit standalone narration only: also check MiniMax")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.interactive and args.interactive_cangyuan:
-        raise ValidationError("Choose --interactive or --interactive-cangyuan, not both")
+    if sum((args.interactive, args.interactive_cangyuan, args.interactive_minimax)) > 1:
+        raise ValidationError("Choose only one interactive credential option")
     if args.interactive_cangyuan:
         print("维护模式：输入内容不会显示，也不会进入命令参数或项目文件。")
         cangyuan = getpass.getpass("Cangyuan fallback API key: ")
@@ -59,13 +61,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.interactive:
         print("维护模式：输入内容不会显示，也不会进入命令参数或项目文件。")
         omni = getpass.getpass("wxart Omni API key: ")
-        minimax = getpass.getpass("MiniMax API key: ")
         store_secret(OMNI_KEYCHAIN_SERVICE, omni)
-        store_secret(MINIMAX_KEYCHAIN_SERVICE, minimax)
-        print("两个密钥已更新到独立的 macOS 钥匙串条目。")
+        print("wxart 视频密钥已安全保存；默认无需 MiniMax 密钥。")
         return 0
 
-    status = Keychain.bootstrap()
+    if args.interactive_minimax:
+        store_secret(MINIMAX_KEYCHAIN_SERVICE, getpass.getpass("MiniMax standalone narration API key: "))
+        print("独立配音密钥已安全保存。")
+        return 0
+    try:
+        from . import capabilities as caps
+    except ImportError:
+        import capabilities as caps
+    config = caps.read_config()
+    route = caps.route(config.get("model", "omni"), config.get("provider", "auto"))
+    services = [CANGYUAN_KEYCHAIN_SERVICE if route["provider"] == "cangyuan" else OMNI_KEYCHAIN_SERVICE]
+    if args.with_narration:
+        services.append(MINIMAX_KEYCHAIN_SERVICE)
+    status = Keychain.bootstrap(services=services)
     for label in ("omni", "cangyuan", "minimax"):
         row = status.get(label)
         if row is None:

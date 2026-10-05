@@ -28,7 +28,9 @@ Base URL `https://ai.cangyuansuanli.cn`；模型 `omni-fast-no-water`；创建�
 
 降级提交与原片段、参考图哈希和任务账本绑定，会记录 `fallback_of` 和服务商名称；成功任务按原片段继续轮询、下载和剪辑，不会另建方案。新服务商的模型可见性和图片字段已通过 `/v1/models` 只读检查；真正生成仍以本次图生视频测试和后续账本为准。
 
-## MiniMax
+## MiniMax 独立语音（仅用户明确请求时）
+
+默认视频原生声音不读取 MiniMax 密钥、不查询音色、不调用语音 POST；普通旁白要求不触发此接口。schema 10 声音路由见 [声音规则](voice-routing.md)。
 
 官方 `https://api.minimaxi.com`，可用 `MINIMAX_BASE_URL` 按账号区域覆盖。`POST /v1/get_voice` 的 `voice_type=all` 是只读音色查询，只使用返回的 `system_voice`；`voice_cloning` 和 `voice_generation` 不作为候选。
 

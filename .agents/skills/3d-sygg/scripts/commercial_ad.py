@@ -90,9 +90,11 @@ except ImportError:  # Direct script execution.
 try:
     from . import capabilities as caps
     from . import advanced
+    from . import audio_routing
 except ImportError:
     import capabilities as caps
     import advanced
+    import audio_routing
 
 
 STYLE_NAMES = {
@@ -119,7 +121,7 @@ NORMAL_STATES = {
 }
 ERROR_STATES = {"submission_unknown", "failed", "awaiting_manual_review"}
 HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
-PROJECT_SCHEMA_VERSION = 9
+PROJECT_SCHEMA_VERSION = 10
 SUPPORTED_ASPECT_RATIOS = {
     "9:16": (720, 1280),
     "16:9": (1280, 720),
@@ -371,7 +373,7 @@ class VisualPromptBuilder:
             f"identity continuity {strategy['identity_anchor']}; approved interactions {actions}. "
             "Preserve face, hair, skin tone, body proportions, hands and outfit from the approved talent "
             "reference. Anatomically correct hands, natural product grip, no extra fingers, no duplicate person, "
-            "no lip-sync and no speaking gesture"
+            + ("Follow approved speech and lip-sync direction" if audio_routing.native(self.plan) else "no lip-sync and no speaking gesture")
         )
 
     def talent_reference_prompt(self) -> str | None:
@@ -469,11 +471,10 @@ class VisualPromptBuilder:
 
         cast = ("In shots requiring talent, preserve the same clearly adult person, wardrobe and natural hands from "
                 + (f"Image{roles.index('talent') + 1}" if "talent" in roles else "Image1")
-                + "; no speaking gestures.") if clip_has_talent(self.plan, clip) else "Pure product; no person, face, hands or body parts."
+                + ("; follow approved speech direction." if audio_routing.native(self.plan) else "; no speaking gestures.")) if clip_has_talent(self.plan, clip) else "Pure product; no person, face, hands or body parts."
         sequence = "In a single unbroken scene; no scene cuts." if panels == 1 else f"Follow exactly {panels} sequential shots in timecode order."
         action_end = float(clip["shots"][-1]["end"])
         copy_text = " / ".join(self.plan.get("ad_copy", [])) or "none"
-        sfx = str(clip["sfx"]).replace(SILENT_CONSTRAINT, "").strip(" .;。；")
         prompt = (
             f"{bindings} Create a premium {self.aspect_ratio} commercial. References are not literal initial frames. "
             "Image1 controls the story; identity references must not override its compositions. "
@@ -491,7 +492,7 @@ class VisualPromptBuilder:
             "or forbidden layout. Preserve verified packaging text. "
             "No narration subtitles, unrelated text, watermark, collage, split screen, storyboard grid, "
             "gutters, panel borders, shot numbers or timecodes in the video. "
-            f"SFX: {sfx}. {SILENT_CONSTRAINT}."
+            + audio_routing.prompt(self.plan, clip)
         )
 
         mentioned = {int(n) for n in re.findall(r"\bImage(\d+)\b", prompt)}
@@ -577,6 +578,11 @@ class AdOrchestrator:
                 "narration": original["plan"]["narration"]}
         elif plan.get("replacement_for"):
             raise ValidationError("Use parent-project and replace-clip to bind a replacement")
+        if parent_project is not None:
+            plan["audio"] = copy.deepcopy(original["plan"].get("audio") or {"mode": "external" if original["plan"]["narration"]["enabled"] else "video", "speech": False})
+            if plan["audio"]["mode"] == "external":
+                plan["audio"]["user_requested_external"] = True
+        audio_routing.normalize_plan(plan)
         _validate_analysis(analysis)
         if analysis.get("source_mode") == "authorized_fictional_concept":
             if "概念演示" not in plan.get("ad_copy", []):
@@ -597,6 +603,7 @@ class AdOrchestrator:
         cap.update(execution_resolution=source_resolution, aspect_ratio=plan.get('aspect_ratio'))
         plan, keeps = caps.prepare_timeline(plan, target_duration, cap,
             strategy or config.get('strategy','auto'), validation_run)
+        audio_routing.normalize_plan(plan)
         target_duration = plan['target_duration']
         if parent_project is not None and len(plan["clips"]) != 1:
             raise ValidationError("A replacement binds one parent generation segment; use one approved request, not a multi-clip child")
@@ -638,6 +645,7 @@ class AdOrchestrator:
                 "execution_strategy": source["execution_strategy"],
                 "keep_frames": source["keep_frames"],
                 "overlap_frames": source["overlap_frames"],
+                "next_overlap_frames": planned[index]["overlap_frames"] if index < len(planned) else 0,
                 "trim_start": source["trim_start"],
                 "continuity_from": source.get("continuity_from"),
                 "entry_state": source.get("entry_state", source["shots"][0]["visual"]),
@@ -658,6 +666,7 @@ class AdOrchestrator:
                 "transition_out": source["transition_out"],
                 "talent_action": str(source.get("talent_action") or ""),
                 "sfx": source["sfx"],
+                "audio": copy.deepcopy(source.get("audio", {})),
             }
             clip["storyboard_prompt"] = builder.storyboard_prompt(clip)
             if cap["family"] != "omni":
@@ -699,7 +708,8 @@ class AdOrchestrator:
         provider_contract.update(route_id=cap['route_id'], revision=cap['revision'], capabilities=cap,
             model=VIDEO_MODEL_ID if cap['family']=='omni' else cap['model'], provider=cap['provider'],
             provider_model=cap['model'], resolution=source_resolution, strategy_policy=strategy or config.get('strategy','auto'),
-            budget=caps.budget_contract(plan, len(clips), len(chunks)), narration_chunks=chunks)
+            budget=caps.budget_contract(plan, len(clips), len(chunks)), narration_chunks=chunks,
+            audio=copy.deepcopy(plan['audio']))
         if cap['family'] != 'omni':
             provider_contract.update(upstream_duration=None, mode='reference', max_reference_images=cap['images'])
             provider_contract['fallback']['enabled'] = False
@@ -1019,10 +1029,10 @@ class AdOrchestrator:
         self._validate_generation_approval(state, allowed_states=allowed)
         if state.get("state") == "segment_ready":
             return self._return_to_parent(state)
-        if not resuming and state["schema_version"] not in {8, PROJECT_SCHEMA_VERSION}:
+        if not resuming and state["schema_version"] not in {8, 9, PROJECT_SCHEMA_VERSION}:
             raise ValidationError("Legacy projects support resume only")
         # Old approvals did not include automatic replacements: their resume remains GET-only.
-        allow_paid = state["schema_version"] in {8, PROJECT_SCHEMA_VERSION} and (
+        allow_paid = state["schema_version"] in {8, 9, PROJECT_SCHEMA_VERSION} and (
             state["state"] == "approved_for_generation" or bool(state["plan"].get("recovery_policy")))
         if not allow_paid and not _merged_omni_tasks(self.ledger.records()):
             raise ValidationError("No known Omni task_id exists; preserve this project for provider review")
@@ -1423,7 +1433,7 @@ class AdOrchestrator:
             if replacement:
                 if digest != replacement["sha256"]:
                     raise ValidationError("Assembly input does not match the approved replacement")
-                for key in ("shots", "storyboard_panel_count", "transition_in", "transition_out", "trim_start"):
+                for key in ("shots", "storyboard_panel_count", "transition_in", "transition_out", "trim_start", "audio"):
                     if key in replacement["clip"]:
                         clip[key] = copy.deepcopy(replacement["clip"][key])
             elif not any(t.get("clip_index") == clip["index"] and t.get("downloaded")
@@ -1431,6 +1441,11 @@ class AdOrchestrator:
                 raise ValidationError("Assembly input is not the downloaded result for its planned clip")
             if state["schema_version"] >= 9 and state["provider_contract"]["capabilities"]["family"] != "omni":
                 advanced.validate_source_video(source, state)
+            if state["schema_version"] >= 10 and audio_routing.native(state["plan"]):
+                info = probe_media(source)
+                end = float(clip.get("trim_start", 0)) + float(clip["keep_duration"])
+                if not info["has_audio"] or info["audio_duration"] + 1/30 + .002 < end:
+                    raise ValidationError("视频模型未返回覆盖保留片段的声音；保留原任务，不自动调用独立语音模型")
             assembly_rows.append({"clip_index": clip["index"], "path": str(source), "sha256": digest,
                 "start": clip["global_start"], "end": clip["global_end"],
                 "reference_approval": replacement["reference_approval"] if replacement else str(self.project_dir / "reference-approval.md")})
@@ -1488,6 +1503,8 @@ class AdOrchestrator:
                     "narration": {"path": str(narration), "sha256": sha256_file(narration),
                         "text": state["plan"]["narration"]["text"],
                         "start_time": narration_window(state["plan"], state["target"]["duration"])[0]} if narration else None}
+        if state["schema_version"] >= 10:
+            assembly["audio"] = copy.deepcopy(state["provider_contract"]["audio"])
         atomic_write_json(self.project_dir / "assembly.json", assembly)
         state = self.load()
         state["artifacts"] = {"assembly": str(self.project_dir / "assembly.json"),
@@ -1558,6 +1575,8 @@ class AdOrchestrator:
                     [r["clip_index"] for r in assembly.get("clips", [])] != [c["index"] for c in state["clips"]]
                     or bool(assembly.get("narration")) != state["plan"]["narration"]["enabled"]):
                 raise ValidationError("Full advertisement assembly does not match approved scope")
+            if state["schema_version"] >= 10 and assembly.get("audio") != state["provider_contract"]["audio"]:
+                raise ValidationError("Assembly audio route changed after approval")
             for row in assembly["clips"] + ([assembly["narration"]] if assembly.get("narration") else []):
                 path = Path(row["path"])
                 if not path.is_file() or sha256_file(path) != row["sha256"]:
@@ -1658,7 +1677,7 @@ class AdOrchestrator:
             raise ValidationError(f"Project state cannot be read: {self.state_path}") from exc
         if not isinstance(data, dict) or data.get("state") not in NORMAL_STATES | ERROR_STATES:
             raise ValidationError("Project state file is invalid")
-        if data.get("schema_version") not in {7, 8, PROJECT_SCHEMA_VERSION}:
+        if data.get("schema_version") not in {7, 8, 9, PROJECT_SCHEMA_VERSION}:
             raise ValidationError(
                 f"Unsupported project schema; create a new project with schema version {PROJECT_SCHEMA_VERSION}"
             )
@@ -1940,7 +1959,7 @@ def _render_plan(state: dict[str, Any]) -> str:
         f"- 模型：`{state['provider_contract']['model']}`；默认 wxart 使用其当前公开别名 `omni-flash`，降级 Cangyuan 使用同名模型 ID",
         "- 降级通道：默认 wxart 不可用且未创建任务时，才切换 Cangyuan；提交不明不盲目重付费",
         f"- 自动恢复：每个明确失败的视频段最多重试 {state['plan'].get('recovery_policy', {}).get('max_video_retries_per_clip', 0)} 次；含重试最多 {state['paid_counts']['omni'] * (1 + state['plan'].get('recovery_policy', {}).get('max_video_retries_per_clip', 0))} 次视频调用。重试可能额外收费；成功段复用，不重做方案或参考图。",
-        f"- 旁白：{'启用' if narration['enabled'] else '不启用'}",
+        f"- 声音制作：{audio_routing.summary(state['plan'])}",
         f"- 最少生图次数：{state['reference_asset_plan']['minimum_imagegen_calls']} 次；本次生成："
         + "、".join({"product_master": "商品母版", "talent": "成年人物设定"}.get(role, "分镜 " + role.split(":")[-1])
                    for role in state['reference_asset_plan']['generation_order']),
@@ -2005,7 +2024,7 @@ def _render_plan(state: dict[str, Any]) -> str:
             f"本次新增生图：{state['reference_asset_plan']['generation_order']}；复用身份图：{[r['role'] for r in state['reference_asset_plan'].get('reusable_assets', [])]}。", ""]
     voice = link["narration"] if link else state["plan"]["narration"]
     full_duration = link["target"]["duration"] if link else state["target"]["duration"]
-    lines += ["", "全片中文旁白：" + (voice['text'] if voice['enabled'] else "不启用；理由：" + str(voice.get('reason', '旧计划未说明'))),
+    lines += ["", "全片中文旁白：" + (audio_routing.summary(state["plan"]) if state.get("schema_version", 0) >= 10 else (voice['text'] if voice['enabled'] else "不启用；理由：" + str(voice.get('reason', '旧计划未说明')))),
               f"旁白窗口：{narration_window({'narration': voice}, full_duration)}（起始秒，最多持续秒）；与分段无关。" if voice['enabled'] else ""]
     if state.get("schema_version",0)>=9:
         lines += ["", advanced.frozen_summary(state)]
@@ -2016,7 +2035,7 @@ def _render_reference_approval(state: dict[str, Any]) -> str:
     if state.get("schema_version", 0) >= 9 and advanced.needs_extended_report(state):
         return advanced.render_references(state)
     narration = state["plan"]["narration"]
-    narration_summary = (
+    narration_summary = audio_routing.summary(state["plan"]) if state.get("schema_version", 0) >= 10 else (
         f"启用，{narration['voice_name']}（{narration['voice_id']}）"
         if narration["enabled"]
         else "不启用"
@@ -2131,7 +2150,7 @@ def _render_reference_approval(state: dict[str, Any]) -> str:
             f"本次新增生图：{state['reference_asset_plan']['generation_order']}；复用身份图：{[r['role'] for r in state['reference_asset_plan'].get('reusable_assets', [])]}。", ""]
     voice = link["narration"] if link else state["plan"]["narration"]
     full_duration = link["target"]["duration"] if link else state["target"]["duration"]
-    lines += ["", "全片中文旁白：" + (voice['text'] if voice['enabled'] else "不启用；理由：" + str(voice.get('reason', '旧计划未说明'))),
+    lines += ["", "全片中文旁白：" + (audio_routing.summary(state["plan"]) if state.get("schema_version", 0) >= 10 else (voice['text'] if voice['enabled'] else "不启用；理由：" + str(voice.get('reason', '旧计划未说明')))),
               f"旁白窗口：{narration_window({'narration': voice}, full_duration)}（起始秒，最多持续秒）；与分段无关。" if voice['enabled'] else ""]
     if state.get("schema_version",0)>=9:
         lines += ["", advanced.frozen_summary(state)]

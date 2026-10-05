@@ -11,6 +11,7 @@ from pathlib import Path
 try:
     from . import capabilities as caps
     from . import media
+    from . import audio_routing
     from .providers import (CangyuanClient, OmniClient, MiniMaxClient, TaskLedger, Keychain,
         KEYCHAIN_ACCOUNT, CANGYUAN_KEYCHAIN_SERVICE, OMNI_KEYCHAIN_SERVICE, MINIMAX_KEYCHAIN_SERVICE,
         CREDENTIAL_ENV_NAMES, ValidationError, ProviderError, PaidRequestBlocked, SubmissionUnknown,
@@ -18,6 +19,7 @@ try:
 except ImportError:
     import capabilities as caps
     import media
+    import audio_routing
     from providers import (CangyuanClient, OmniClient, MiniMaxClient, TaskLedger, Keychain,
         KEYCHAIN_ACCOUNT, CANGYUAN_KEYCHAIN_SERVICE, OMNI_KEYCHAIN_SERVICE, MINIMAX_KEYCHAIN_SERVICE,
         CREDENTIAL_ENV_NAMES, ValidationError, ProviderError, PaidRequestBlocked, SubmissionUnknown,
@@ -25,6 +27,11 @@ except ImportError:
 
 def validate_target(state):
     target=state['target']; contract=state['provider_contract']; cap=contract['capabilities']
+    if state['schema_version'] >= 10:
+        checked = copy.deepcopy(state['plan'])
+        audio_routing.normalize_plan(checked)
+        if checked['audio'] != state['plan'].get('audio') or contract.get('audio') != checked['audio']:
+            raise ValidationError('Frozen audio route does not match the approved plan')
     native=caps.source_resolution(cap,target['resolution'])
     wh=(720,1280) if target['aspect_ratio']=='9:16' else (1280,720)
     if target['aspect_ratio'] not in ('9:16','16:9'):
@@ -61,8 +68,7 @@ def video_prompt(builder, clip, cap):
         f"After {clip['keep_duration']+offset:.2f}s maintain the resolved exit state through {clip['upstream_duration']}s. No new opening or ending between segments.",
         'Output normal full-screen continuous motion. Never show a contact sheet, collage, panel border, static slideshow, unapproved captions or skipped/reordered shots.',
         'Preserve approved product brand marks and exact approved text; do not remove real logos. Animate typography as designed.',
-        'silent, no dialogue, no human voice, no speech, ambient SFX and mechanical sound effects only',
-        'Soundscape: '+clip['sfx']])
+        audio_routing.prompt(builder.plan, clip)])
 
 def configure_asset_plan(order, clips):
     order[:]=[v for v in order if not v.startswith('storyboard:')]
@@ -410,7 +416,7 @@ def render_plan(s):
         for shot in clip['shots']:
             lines += [f"- {shot['shot_id']} [{shot['start']:.2f}–{shot['end']:.2f}s] {shot['purpose']}；画面 {shot['visual']}；动作 {shot['action']}；细节 {shot['product_detail']}；运镜 {shot['camera']}；转场 {shot['transition']}；动态图文 {json.dumps(shot.get('graphics',[]),ensure_ascii=False)}"]
         lines += ['','分镜生图设计：',clip['storyboard_prompt'] if clip['execution_strategy'] in ('full_storyboard','per_shot') else json.dumps(clip['frame_prompts'],ensure_ascii=False,indent=2),'','视频执行提示词：',clip['video_prompt'],'']
-    lines += ['## 中文旁白',n['text'] if n['enabled'] else '无旁白：'+n['reason'],json.dumps(c['narration_chunks'],ensure_ascii=False,indent=2),
+    lines += ['## 中文旁白',audio_routing.summary(p) if s['schema_version'] >= 10 else (n['text'] if n['enabled'] else '无旁白：'+n['reason']),json.dumps(c['narration_chunks'],ensure_ascii=False,indent=2),
         '', '商品母版提示词：',s['product_master_prompt'],'','人物参考提示词：',str(s['talent_reference_prompt']),
         '', '等待确认：**确认方案并生成参考图**。参考图确认后才进行付费视频与旁白生成。']
     return '\n'.join(lines)
