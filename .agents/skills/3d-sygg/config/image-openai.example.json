@@ -1,0 +1,16 @@
+{
+  "provider": "YOUR-IMAGE-SERVICE",
+  "protocol": "multipart",
+  "base_url": "https://YOUR-IMAGE-SERVICE/v1",
+  "model": "ACTUAL-IMAGE2.5-ID-FROM-SERVICE",
+  "documentation": "https://YOUR-IMAGE-SERVICE/docs/images",
+  "generate_path": "/images/generations",
+  "edit_path": "/images/edits",
+  "image_field": "image[]",
+  "size": "1536x1024",
+  "key_env": "IMAGE_API_KEY",
+  "max_reference_images": 14,
+  "max_attempts_per_asset": 2,
+  "extra_body": {"n": 1},
+  "response": {"b64_path": "data.0.b64_json", "url_path": "data.0.url"}
+}

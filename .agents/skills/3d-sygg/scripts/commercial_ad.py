@@ -91,10 +91,12 @@ try:
     from . import capabilities as caps
     from . import advanced
     from . import audio_routing
+    from . import image_api
 except ImportError:
     import capabilities as caps
     import advanced
     import audio_routing
+    import image_api
 
 
 STYLE_NAMES = {
@@ -757,6 +759,13 @@ class AdOrchestrator:
             state["reference_asset_plan"]["reusable_assets"] = reusable
             state["reference_asset_plan"]["generation_order"] = [role for role in generation_order if role not in reused_roles]
             state["reference_asset_plan"]["minimum_imagegen_calls"] = len(state["reference_asset_plan"]["generation_order"])
+        image_config = image_api.read_config()
+        # Snapshot in the existing plan contract: later configuration changes cannot
+        # silently change the approved model, service, size or paid-call ceiling.
+        state["reference_asset_plan"]["image_config"] = image_config
+        image_attempts = image_config.get("max_attempts_per_asset", 2)
+        state["reference_asset_plan"]["maximum_image_calls"] = (
+            state["reference_asset_plan"]["minimum_imagegen_calls"] * image_attempts)
         self.project_dir.mkdir(parents=True, exist_ok=True)
         for name in ("references", "requests", "audio", "clips/raw", "clips/normalized", "final", "qa/frames"):
             (self.project_dir / name).mkdir(parents=True, exist_ok=True)
@@ -785,6 +794,20 @@ class AdOrchestrator:
         rows = manifest.get("references")
         if not isinstance(rows, list) or not rows:
             raise ValidationError("Reference manifest must contain a non-empty references list")
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValidationError("Each reference must be an object")
+            image_config = state["reference_asset_plan"].get("image_config", {"provider": "builtin"})
+            reused = any(r.get("generation_receipt") == row.get("generation_receipt")
+                         and r["role"] == row.get("role")
+                         and r["sha256"] == sha256_file(Path(row["path"]))
+                         for r in state["reference_asset_plan"].get("reusable_assets", []))
+            if (image_config["provider"] != "builtin" and row.get("origin") == "codex_imagegen"
+                    and not reused):
+                raise ValidationError("This plan approved an external image API; do not silently switch image tools")
+            if row.get("origin") == "external_image_api":
+                if not reused:
+                    image_api.verify_receipt(self.project_dir, row)
         registered = [self._normalize_reference_row(row, order) for order, row in enumerate(rows, start=1)]
         reference_sets = self._validate_reference_pack(state, registered)
         state["references"] = registered
@@ -827,10 +850,10 @@ class AdOrchestrator:
         if width <= 0 or height <= 0:
             raise ValidationError(f"Reference image has no readable dimensions: {path}")
         origin = str(row.get("origin") or "")
-        if role in {"product_master", "storyboard"} and origin != "codex_imagegen":
-            raise ValidationError(f"{role} must be a newly generated Codex imagegen asset")
-        if role in {"style", "talent"} and origin not in {"codex_imagegen", "user_provided"}:
-            raise ValidationError(f"{role} origin must be codex_imagegen or user_provided")
+        if role in {"product_master", "storyboard"} and origin not in {"codex_imagegen", "external_image_api"}:
+            raise ValidationError(f"{role} must be a newly generated image asset")
+        if role in {"style", "talent"} and origin not in {"codex_imagegen", "external_image_api", "user_provided"}:
+            raise ValidationError(f"{role} origin must be generated or user_provided")
         clip_index = row.get("clip_index")
         if role == "storyboard":
             try:
@@ -856,6 +879,7 @@ class AdOrchestrator:
             "clip_index": clip_index,
             "path": str(path),
             "origin": origin,
+            **({"generation_receipt": row.get("generation_receipt")} if origin == "external_image_api" else {}),
             "sha256": sha256_file(path),
             "pixel_sha256": image_pixel_hash(path),
             "width": width,
@@ -1936,8 +1960,10 @@ def _shot_time_range(clip: dict[str, Any], shot: dict[str, Any], *, global_time:
 
 
 def _render_plan(state: dict[str, Any]) -> str:
+    # Include the same image model/cost contract in both legacy and extended reports.
+    image_header = image_api.render_contract(state)
     if state.get("schema_version", 0) >= 9 and advanced.needs_extended_report(state):
-        return advanced.render_plan(state)
+        return image_header + advanced.render_plan(state)
     narration = state["plan"]["narration"]
     talent = state["plan"]["talent_strategy"]
     lines = [
@@ -2028,7 +2054,7 @@ def _render_plan(state: dict[str, Any]) -> str:
               f"旁白窗口：{narration_window({'narration': voice}, full_duration)}（起始秒，最多持续秒）；与分段无关。" if voice['enabled'] else ""]
     if state.get("schema_version",0)>=9:
         lines += ["", advanced.frozen_summary(state)]
-    return "\n".join(lines)
+    return image_header + "\n".join(lines)
 
 
 def _render_reference_approval(state: dict[str, Any]) -> str:

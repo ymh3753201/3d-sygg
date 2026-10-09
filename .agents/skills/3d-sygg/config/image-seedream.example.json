@@ -1,0 +1,16 @@
+{
+  "provider": "volcengine",
+  "protocol": "json",
+  "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+  "model": "ACTUAL-SEEDREAM-5.0-ID-FROM-ACCOUNT",
+  "documentation": "https://docs.volcengine.com/docs/ark/image-generation-api",
+  "generate_path": "/images/generations",
+  "edit_path": "/images/generations",
+  "image_field": "image",
+  "size": "2048x2048",
+  "key_env": "IMAGE_API_KEY",
+  "max_reference_images": 14,
+  "max_attempts_per_asset": 2,
+  "extra_body": {"response_format": "b64_json", "stream": false, "watermark": false, "sequential_image_generation": "disabled"},
+  "response": {"b64_path": "data.0.b64_json", "url_path": "data.0.url"}
+}

@@ -16,3 +16,4 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: python .agents/skills/3d-sygg/tests/run_offline.py
       - run: python tools/build_release.py --output dist
+      - run: python tools/build_student_package.py --output dist/student

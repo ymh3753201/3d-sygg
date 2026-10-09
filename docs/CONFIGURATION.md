@@ -6,9 +6,15 @@
 
 ## 1. 生图能力
 
-当前 Skill 使用 Codex 内置生图工具 `imagegen`。请确保你的 Codex 环境能够实际生成图片，具有相应账号权限和额度。这不是 `OPENAI_API_KEY` 被 Python 脚本直接调用的流程，仓库没有读取 `IMAGE_API_KEY`、`IMAGE_BASE_URL` 或 `IMAGE_MODEL` 的生图适配器。
+默认使用 Codex 内置 `imagegen`，无需独立图片 Key。也可使用自己的图片服务：安装时提供**该服务的接口文档、模型信息和密钥安全保存方式**，AI 负责配置，你无需自己修改代码。
 
-使用独立生图服务时，必须另外配置该服务的地址、模型、Key，并实现参考图输入、生成结果落盘和来源追踪，再同步调整来源校验与测试。仅提供 Key 不足以让当前版本兼容。
+已经支持 OpenAI 风格的文件上传参考图、Seedream 风格的 JSON 参考图，以及按文档配置的异步任务查询。Image2.5 等中转模型的名称、地址和字段以该站文档为准；Seedream 5.0 的模型 ID、地区与尺寸以账号和当前官方文档为准，不猜测模型别名。
+
+完整接入命令和配置示例见 [图片 API 接入](../.agents/skills/3d-sygg/references/image-api.md)。运行 `python3 scripts/image_api.py check` 只检查本地配置与密钥是否可读取，不联网、不生图、不计费。真实生图需要方案确认。
+
+图片配置保存为 `config/image.local.json`（Git 和安装包均排除），只存接口与模型资料。Key 优先读取配置指定的环境变量（默认 `IMAGE_API_KEY`），也可用 `python3 scripts/image_api.py set-key` 隐藏输入保存到 macOS 钥匙串。图片 Key 与视频 Key 分开；不修改 Codex 登录配置。`.env` 不自动加载。
+
+在方案确认时明确：原商品照片将直接作为参考图输入传给所选图片服务；后续分镜传生成母版和适用人物图。图片输入无需公网隧道，不为图片模型临时公开原图。视频仍只接收第二次确认的生成参考图。
 
 ## 2. 视频和旁白密钥
 

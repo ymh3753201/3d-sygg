@@ -2,6 +2,8 @@
 
 # API、凭据与可恢复性
 
+独立图片 API 的配置、输入、回执和恢复见 [图片 API 接入](image-api.md)。下面的视频/语音请求合同保持原有行为；图片 Key、图片账本与视频 Key、视频账本分别管理。
+
 ## 自动凭据
 
 正常工作不索取 Key。默认 Omni 依次读取 `WXART_OMNI_API_KEY` / `WXART_API_KEY` / `OMNI_API_KEY`；降级服务商读取 `CANGYUAN_API_KEY` / `CANGYUAN_OMNI_API_KEY`；MiniMax 读取 `MINIMAX_API_KEY`。其次读 macOS 钥匙串，服务名分别是 `3d-sygg-omni`、`3d-sygg-cangyuan`、`3d-sygg-minimax`，账号 `api-key`。开源版不搜索作者私有目录；仅在显式指定本地来源时一次性迁移至 macOS 钥匙串，写入后回读核对。`SYGG_OMNI_KEY_SOURCE` / `SYGG_CANGYUAN_KEY_SOURCE` / `SYGG_MINIMAX_KEY_SOURCE` 只允许放本地来源路径。

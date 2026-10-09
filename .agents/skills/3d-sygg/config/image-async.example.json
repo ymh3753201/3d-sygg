@@ -1,0 +1,17 @@
+{
+  "provider": "YOUR-ASYNC-IMAGE-SERVICE",
+  "protocol": "json",
+  "base_url": "https://YOUR-ASYNC-IMAGE-SERVICE/v1",
+  "model": "ACTUAL-MODEL-ID",
+  "documentation": "https://YOUR-ASYNC-IMAGE-SERVICE/docs",
+  "generate_path": "/images/generations",
+  "edit_path": "/images/generations",
+  "image_field": "images",
+  "size": "2048x2048",
+  "key_env": "IMAGE_API_KEY",
+  "max_reference_images": 3,
+  "max_attempts_per_asset": 2,
+  "extra_body": {},
+  "async": {"id_path": "data.task_id", "poll_path": "/tasks/{task_id}", "status_path": "data.status", "success": ["completed"], "failure": ["failed", "cancelled"]},
+  "response": {"url_path": "data.output.0.url"}
+}

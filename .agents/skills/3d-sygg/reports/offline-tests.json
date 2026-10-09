@@ -1,13 +1,13 @@
 {
-  "tests": 197,
+  "tests": 219,
   "failures": 0,
   "errors": 0,
   "skipped": 0,
   "blocked_external_attempts": [],
-  "date": "2026-10-05",
-  "version": "v2.2.0",
+  "date": "2026-10-09",
+  "version": "v2.3.0",
   "platform": "macOS",
   "python": "3.14.0",
   "paid_generation_executed": false,
-  "notes": "Offline validation. Native audio provider output and listening quality were not live-tested."
+  "notes": "Offline validation including localhost image APIs; no real model generation or creative quality validation."
 }

@@ -7,8 +7,8 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / '.agents/skills/3d-sygg'
-VERSION = 'v2.2.0'
-REPORTS = {'audio-default-policy.md', 'offline-tests.json', 'practical-repairs-20260929.md',
+VERSION = 'v2.3.0'
+REPORTS = {'audio-default-policy.md', 'image-api-validation.md', 'offline-tests.json', 'practical-repairs-20260929.md',
            'practical-repairs-tests.json', 'upgrade-validation.md'}
 
 
@@ -20,7 +20,7 @@ def source_files():
                 continue
             if '__pycache__' in path.parts or path.name.startswith('.'):
                 continue
-            if directory == 'config' and path.name != 'defaults.example.json':
+            if directory == 'config' and not path.name.endswith('.example.json'):
                 continue
             if path.suffix in {'.py', '.md', '.json', '.yaml'}:
                 yield path

@@ -14,6 +14,7 @@ def main():
     root = Path(__file__).resolve().parent
     sys.path.insert(0, str(root))
     real_open = urllib.request.urlopen
+    real_opener_open = urllib.request.OpenerDirector.open
     real_run = subprocess.run
     real_popen = subprocess.Popen
     blocked = []
@@ -24,6 +25,13 @@ def main():
             blocked.append('external HTTP')
             raise AssertionError('Offline validation attempted external HTTP')
         return real_open(request, *args, **kwargs)
+
+    def guarded_opener_open(opener, request, *args, **kwargs):
+        url = request.full_url if hasattr(request, 'full_url') else str(request)
+        if urllib.parse.urlparse(url).hostname not in {'127.0.0.1', 'localhost', '::1'}:
+            blocked.append('external HTTP opener')
+            raise AssertionError('Offline validation attempted external HTTP')
+        return real_opener_open(opener, request, *args, **kwargs)
 
     def check_command(args):
         name = Path(args[0]).name if isinstance(args, (list, tuple)) else str(args).split()[0]
@@ -40,6 +48,7 @@ def main():
         return real_popen(args, *a, **kw)
 
     with mock.patch.object(urllib.request, 'urlopen', side_effect=guarded_open), \
+         mock.patch.object(urllib.request.OpenerDirector, 'open', new=guarded_opener_open), \
          mock.patch.object(subprocess, 'run', side_effect=guarded_run), \
          mock.patch.object(subprocess, 'Popen', side_effect=guarded_popen):
         suite = unittest.defaultTestLoader.discover(str(root), pattern='test_*.py')

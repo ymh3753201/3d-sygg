@@ -1,11 +1,11 @@
 ---
 name: 3d-sygg
-description: 面向各类商品和行业，根据用户目标时长与商品图设计专业商业广告，经方案与实际参考图两次确认，用 Codex 内置生图与可配置的 Omni、Seedance 2.0/2.5、MiniMax H3 制作短片或多段长广告，经一致性检查和剪辑输出 MP4。仅用于商品广告策划制作，不用于普通剪辑或数字人口播。
+description: 面向各类商品和行业，根据用户目标时长与商品图设计专业商业广告，经方案与实际参考图两次确认，用 Codex 内置或用户配置的图片 API 与可配置的 Omni、Seedance 2.0/2.5、MiniMax H3 制作短片或多段长广告，经一致性检查和剪辑输出 MP4。仅用于商品广告策划制作，不用于普通剪辑或数字人口播。
 ---
 
 # 3D sygg
 
-安装与首次配置见仓库 `docs/INSTALL.md` 和 `docs/CONFIGURATION.md`（发行包内也附带）。当前生图依赖 Codex 内置 imagegen，不包含独立生图 API 适配器；使用者须先配置所用视频服务和可选旁白密钥。
+安装与首次配置见仓库 `docs/INSTALL.md` 和 `docs/CONFIGURATION.md`（发行包内也附带）。生图默认使用 Codex 内置 imagegen，也支持用户按接口文档配置独立图片 API（OpenAI 风格文件上传、Seedream 风格 JSON 与可配置异步查询）。使用独立图片服务时先读 [图片 API 接入](references/image-api.md)，安装时集中配置一次。
 
 仅项目内安装。面向不同商品与行业，不预设食品、数码或任何品类；执行本 Skill 的 AI 负责理解用户商品图并设计广告，Python 负责落实方案和处理媒体。
 
@@ -21,7 +21,7 @@ description: 面向各类商品和行业，根据用户目标时长与商品图�
 
 读取 [视觉与导演原则](references/visual-standards.md)、[参考图合同](references/omni-storyboard-guidance.md)、[人物决策](references/talent-strategy.md)；执行脚本时查 [工作流字段](references/workflow.md) 和 [API 与恢复](references/api-contracts.md)。安排声音时读取 [音色规则](references/voice-routing.md)。
 
-先理解本次用户的商品、诉求、目标时长和投放场景，再用 Codex 原生视觉实际查看每张商品图；不能从文件名、历史项目或行业模板推断商品。图片必须有可读取的本地路径；没有就请求补图，不用相似商品代替。原商品照片只用于识别与 Codex 生图，禁止登记为执行资产、临时公开或上传视频模型。
+先理解本次用户的商品、诉求、目标时长和投放场景，再用 Codex 原生视觉实际查看每张商品图；不能从文件名、历史项目或行业模板推断商品。图片必须有可读取的本地路径；没有就请求补图，不用相似商品代替。原商品照片只用于识别与所选图片模型的参考图输入，禁止登记为执行资产、临时公开或上传视频模型。
 
 ## 1. 上传商品图：完成方案，等待第一次确认
 
@@ -37,11 +37,11 @@ description: 面向各类商品和行业，根据用户目标时长与商品图�
 
 ## 2. 确认方案：生成并展示实际参考图，等待第二次确认
 
-1. 读取并使用 Codex `imagegen` Skill 和内置生图工具。用 `product_master_prompt` 与全部原商品照片生成一张新的专业商品母版：商品完整、结构和标签准确、干净棚拍、不带广告特效/人物/分格，不复制原图背景。母版比例方便构图即可，不作为视频硬门槛。
+1. 按方案冻结的 `reference_asset_plan.image_config` 选择生图：`builtin` 时读取 Codex `imagegen` Skill 并使用内置工具；外部 API 时按 [图片 API 接入](references/image-api.md) 运行 `image_api.py generate`，不得偷偷回退内置工具、换模型或伪造来源。第一次方案同时展示服务商、模型、输入照片传给谁、最低与最高图片调用数、当前费用；得到已有方案确认后执行。用 `product_master_prompt` 与全部原商品照片生成一张新的专业商品母版：商品完整、结构和标签准确、干净棚拍、不带广告特效/人物/分格，不复制原图背景。母版比例方便构图即可，不作为视频硬门槛。
 2. 目视对照原图检查母版；人物模式另生成一张全局成年人物设定图。随后以母版（只有需要人物出镜的片段才加人物设定）为生图输入，依照 `reference_asset_plan.generation_order` 生成实际需要的完整分镜或独立关键帧。Omni 完整宫格仍整张使用；其他策略按 `frame_prompts` 单独生图，保留相同人物、商品、动态图文和动作。不得把广告海报兼作母版，不复制同一资产冒充多个角色。
 3. 分镜应显示不同景别、动作进展、故事顺序与商品细节，并把每镜最关键的动作/图文/特效状态真正画出来；不能先生成普通商品摆拍，再期待视频模型凭空补出整套创意。母版的干净棚拍不限制广告场景。2–3 格单行左到右，4 格 2×2；每格比例不必等于成片比例。禁止编号、时间码、导演说明、旁白字幕；允许方案批准的品牌字和广告动效字。不要拆格、裁图或重新编码。
 4. 每资产先生成一个候选。只有明确可见错误才做一次针对性修正；说明首版未采用及原因，只登记和展示最终待确认版本。不能因格式猜测或为导演说明重复付费生成同一图片。
-5. 用 `register-references` 登记最终文件与生成关系。`identity_verified`、`clean_for_video`、`panel_order_verified`、`distinct_panels_verified` 必须来自实际目视核对。脚本验证来源声明、面板数、文件与解码像素重复、哈希和素材绑定；它不能证明主观画质或替代看图。有出镜的片段须记录使用的人物资产哈希；纯商品段不要求人物来源。
+5. 用 `register-references` 登记最终文件与生成关系。内置图片继续写 `origin=codex_imagegen`；外部图片写 `origin=external_image_api` 与脚本返回的 `generation_receipt`，不能填成内置来源。`identity_verified`、`clean_for_video`、`panel_order_verified`、`distinct_panels_verified` 必须来自实际目视核对。脚本验证来源声明、面板数、文件与解码像素重复、哈希和素材绑定；它不能证明主观画质或替代看图。有出镜的片段须记录使用的人物资产哈希；纯商品段不要求人物来源。
 6. 在同一条用户可见回复中展示 `reference-approval.md` 对应的真实母版、人物设定（如有）及每段分镜。导演总览、时间与镜头意图放在图片外，不额外生图。逐段明确真正上传的图片顺序、职责，展示规格、音色和调用次数；临时公开仅覆盖此清单，不包括用户原图和未采用草稿。结尾只问：**确认参考图并生成视频**。
 
 得到确认后运行 `approve-references`。更改方案、参考图、顺序、提示词、时长、音色或超出已批准恢复额度的次数，必须重新展示并确认；额度内的同素材失败重试不需要再确认，不在已有付费项目里覆盖旧批准记录。
@@ -62,7 +62,7 @@ description: 面向各类商品和行业，根据用户目标时长与商品图�
 
 ## 命令与恢复
 
-在 Skill 根目录运行。用户只需表达商品、创意与时长；AI 负责执行命令。`configure` 只影响后续新项目，旧项目不迁移。
+在 Skill 根目录运行。用户只需表达商品、创意与时长；AI 负责执行命令。`configure` 与 `image_api.py configure` 只影响后续新项目，旧项目不迁移。生图配置/安全读 Key 检查：`python3 scripts/image_api.py check`（不联网、不计费；内置模式只报告无需 API Key）。
 
 ```bash
 python3 scripts/commercial_ad.py capabilities
