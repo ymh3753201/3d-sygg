@@ -55,6 +55,8 @@ def native(plan):
 
 
 def prompt(plan, clip):
+    if plan.get('prompt_design_version') == 1:
+        return compact_prompt(plan, clip)
     audio = plan.get('audio')
     if not audio:
         sound = str(clip.get('sfx', '')).replace(LEGACY_CONSTRAINT, '').strip(' .;。；')
@@ -83,6 +85,46 @@ def prompt(plan, clip):
     else:
         lines.append('This segment has no approved spoken words: do not invent dialogue. Retain the designed music, ambience and SFX.')
     return ' '.join(lines)
+
+
+def compact_prompt(plan, clip):
+    """Text-only audio direction; no reference files or extra service calls."""
+    audio = plan['audio']
+    value = {**audio.get('shared', {}), **clip.get('audio', {})}
+    parts = ['Generate synchronized audio with the video.',
+             'Overall sound: ' + plan['audiovisual_tone']]
+    for key, title in (('music', 'Music'), ('ambience', 'Ambience')):
+        if value.get(key):
+            parts.append(title + ': ' + value[key])
+    parts.append('Action SFX: ' + str(clip.get('sfx', '')).replace(LEGACY_CONSTRAINT, '').strip(' .;。；'))
+    if audio['mode'] == 'external' or not audio['speech']:
+        parts.append('No dialogue, no human voice, no speech; retain music, ambience and SFX.')
+    elif value.get('speech_text'):
+        start = float(clip.get('trim_start', 0)) + float(clip.get('overlap_frames', 0)) / 30
+        end = float(clip.get('trim_start', 0)) + float(clip['keep_duration']) - max(
+            float(clip.get('tail_margin', 0)), float(clip.get('next_overlap_frames', 0)) / 30)
+        if end <= start:
+            raise ValidationError('转场后没有足够的原生台词窗口；请调整台词或分段')
+        parts.extend([
+            f"Speaker {value.get('speaker_id', 'narrator')}: {value.get('voice', '')}",
+            'Speak exactly once: ' + json.dumps(value['speech_text'], ensure_ascii=False),
+            f'Complete all speech within [{start:.2f}-{end:.2f}s]; no extra words or cut-off syllables.',
+            'Off-screen narration unless the approved shot explicitly requires visible speech; then synchronize lips. Keep speech clear above music and effects.'])
+    else:
+        parts.append('No approved spoken words in this segment; do not invent dialogue.')
+    context = clip.get('sequence_context', {})
+    if context.get('count', 1) > 1:
+        parts.append('Across segments: same musical palette/tempo and acoustic space, except approved changes below.' +
+                     (' Keep each speaker timbre/delivery consistent.' if audio['mode'] == 'video' and audio['speech'] else ''))
+        if value.get('change_reason'):
+            parts.append('Approved sound change: ' + value['change_reason'] + '; use the segment directions above for this change.')
+        if context.get('previous_exit'):
+            parts.append('Continue sound; no fresh intro or opening sting.')
+        if context.get('next_entry'):
+            parts.append('No musical finale or fade-out here unless designed.')
+    if value.get('change_reason'):
+        parts.append('Intentional local sound change: ' + value['change_reason'])
+    return '\n'.join(parts)
 
 
 def summary(plan):

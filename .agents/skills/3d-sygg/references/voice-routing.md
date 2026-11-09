@@ -6,6 +6,8 @@
 
 ## 默认方案写法
 
+新项目优先使用 `audio.shared.voice/music/ambience` 统一文字声音方向，片段只补自己的台词和必要声音变化；不要求音频参考文件。不同角色可用 `audio.speakers` 配合 `clips[].audio.speaker_id`，有意改变声音写 `change_reason`。完整字段、自动继承与长度检查见 [精简提示词](prompt-design.md)。旧项目不自动改写。
+
 ```json
 {
   "audio": {"mode": "video", "speech": true},

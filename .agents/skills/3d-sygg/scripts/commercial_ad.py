@@ -92,11 +92,13 @@ try:
     from . import advanced
     from . import audio_routing
     from . import image_api
+    from . import prompt_design, prompt_limits
 except ImportError:
     import capabilities as caps
     import advanced
     import audio_routing
     import image_api
+    import prompt_design, prompt_limits
 
 
 STYLE_NAMES = {
@@ -405,6 +407,8 @@ class VisualPromptBuilder:
         )
 
     def storyboard_prompt(self, clip: dict[str, Any]) -> str:
+        if prompt_design.enabled(self.plan):
+            return prompt_design.storyboard(self, clip)
         panels = int(clip["storyboard_panel_count"])
         if panels not in STORYBOARD_LAYOUTS:
             raise ValidationError("Storyboard panel count must be between 1 and 4")
@@ -461,6 +465,8 @@ class VisualPromptBuilder:
         )
 
     def omni_prompt(self, clip: dict[str, Any]) -> str:
+        if prompt_design.enabled(self.plan):
+            return prompt_design.video(self, clip, {'family': 'omni'}, audio_routing.prompt(self.plan, clip))
         roles = execution_roles(self.plan, clip)
         panels = int(clip["storyboard_panel_count"])
         descriptions = {
@@ -555,6 +561,7 @@ class AdOrchestrator:
         if video_provider not in {"auto", "wxart", "cangyuan"}:
             raise ValidationError("video-provider must be auto, wxart, or cangyuan")
         plan = copy.deepcopy(plan)
+        plan['prompt_design_version'] = prompt_design.VERSION
         plan.setdefault("recovery_policy", {"max_video_retries_per_clip": 1})
         if (parent_project is None) != (replace_clip is None):
             raise ValidationError("parent-project and replace-clip must be supplied together")
@@ -582,6 +589,9 @@ class AdOrchestrator:
             raise ValidationError("Use parent-project and replace-clip to bind a replacement")
         if parent_project is not None:
             plan["audio"] = copy.deepcopy(original["plan"].get("audio") or {"mode": "external" if original["plan"]["narration"]["enabled"] else "video", "speech": False})
+            for row in plan.get('clips', []):
+                row.setdefault('audio', copy.deepcopy(target_clip.get('audio', {})))
+                row.setdefault('transition_mode', target_clip.get('transition_mode', 'cut'))
             if plan["audio"]["mode"] == "external":
                 plan["audio"]["user_requested_external"] = True
         audio_routing.normalize_plan(plan)
@@ -610,6 +620,23 @@ class AdOrchestrator:
         if parent_project is not None and len(plan["clips"]) != 1:
             raise ValidationError("A replacement binds one parent generation segment; use one approved request, not a multi-clip child")
         _validate_plan(plan, keeps)
+        previous_exit = None
+        if parent_project is not None and replace_clip > 1:
+            preceding = original['clips'][replace_clip-2]
+            previous_exit = preceding.get('exit_state', preceding['transition_out'])
+        prompt_design.normalize(plan, previous_exit=previous_exit)
+        if parent_project is not None:
+            if replace_clip < len(original['clips']):
+                following = original['clips'][replace_clip]
+                if following.get('transition_mode') == 'match_action' and plan['clips'][0]['exit_state'] != following['entry_state']:
+                    raise ValidationError('替换段的出场状态必须保留下一段动作接续所用的边界状态')
+            # A replacement keeps its position in the complete ad, not a new intro/finale.
+            plan['clips'][0]['sequence_context'] = {
+                'segment': replace_clip, 'count': len(original['clips']),
+                'previous_exit': original['clips'][replace_clip-2].get('exit_state', original['clips'][replace_clip-2]['transition_out']) if replace_clip > 1 else '',
+                'next_entry': original['clips'][replace_clip].get('entry_state', original['clips'][replace_clip]['transition_in']) if replace_clip < len(original['clips']) else '',
+            }
+        plan['prompt_model_family'] = cap['family']
         narration_window(plan, target_duration)
         for clip in plan["clips"]:
             clip["execution_reference_roles"] = execution_roles(plan, clip)
@@ -669,6 +696,8 @@ class AdOrchestrator:
                 "talent_action": str(source.get("talent_action") or ""),
                 "sfx": source["sfx"],
                 "audio": copy.deepcopy(source.get("audio", {})),
+                "sequence_context": copy.deepcopy(source['sequence_context']),
+                "transition_mode": source['transition_mode'],
             }
             clip["storyboard_prompt"] = builder.storyboard_prompt(clip)
             if cap["family"] != "omni":
@@ -712,6 +741,8 @@ class AdOrchestrator:
             provider_model=cap['model'], resolution=source_resolution, strategy_policy=strategy or config.get('strategy','auto'),
             budget=caps.budget_contract(plan, len(clips), len(chunks)), narration_chunks=chunks,
             audio=copy.deepcopy(plan['audio']))
+        provider_contract['prompt_limits'] = prompt_limits.validate_routes(
+            plan.get('prompt_limits', config.get('prompt_limits', {})))
         if cap['family'] != 'omni':
             provider_contract.update(upstream_duration=None, mode='reference', max_reference_images=cap['images'])
             provider_contract['fallback']['enabled'] = False
@@ -766,10 +797,12 @@ class AdOrchestrator:
         image_attempts = image_config.get("max_attempts_per_asset", 2)
         state["reference_asset_plan"]["maximum_image_calls"] = (
             state["reference_asset_plan"]["minimum_imagegen_calls"] * image_attempts)
+        prompt_report = prompt_limits.inspect_project(state)
         self.project_dir.mkdir(parents=True, exist_ok=True)
         for name in ("references", "requests", "audio", "clips/raw", "clips/normalized", "final", "qa/frames"):
             (self.project_dir / name).mkdir(parents=True, exist_ok=True)
         atomic_write_json(self.state_path, state)
+        atomic_write_json(self.project_dir / 'prompt-check.json', prompt_report)
         (self.project_dir / "plan.md").write_text(_render_plan(state), encoding="utf-8")
         return state
 
@@ -1062,6 +1095,7 @@ class AdOrchestrator:
             raise ValidationError("No known Omni task_id exists; preserve this project for provider review")
         self.ledger.schema_version = state["schema_version"]
         self.ledger.budget = state["provider_contract"].get("budget")
+        self.ledger.prompt_limits = state['provider_contract'].get('prompt_limits', {})
         state["state"] = "generating"
         state.pop("last_error", None)
         self.save(state)
@@ -1119,6 +1153,8 @@ class AdOrchestrator:
             raise
 
     def _preflight_core(self, state: dict[str, Any]) -> dict[str, Any]:
+        if prompt_design.enabled(state['plan']):
+            prompt_limits.inspect_project(state)
         require_media_tools()
         if not shutil.which("cloudflared"):
             raise ValidationError("cloudflared is required")
@@ -1685,6 +1721,8 @@ class AdOrchestrator:
             raise ValidationError("Final reference approval is required before preflight or generation")
         self._validate_plan_approval(state)
         self._validate_reference_files(state)
+        if prompt_design.enabled(state['plan']):
+            prompt_limits.inspect_project(state)
         expected = state.get("approvals", {}).get("references")
         if not expected or expected != canonical_hash(_reference_contract(state)):
             raise ValidationError("References or prompts changed after approval")
@@ -1961,7 +1999,7 @@ def _shot_time_range(clip: dict[str, Any], shot: dict[str, Any], *, global_time:
 
 def _render_plan(state: dict[str, Any]) -> str:
     # Include the same image model/cost contract in both legacy and extended reports.
-    image_header = image_api.render_contract(state)
+    image_header = image_api.render_contract(state) + prompt_design.summary(state) + prompt_limits.render(state)
     if state.get("schema_version", 0) >= 9 and advanced.needs_extended_report(state):
         return image_header + advanced.render_plan(state)
     narration = state["plan"]["narration"]
@@ -2058,8 +2096,9 @@ def _render_plan(state: dict[str, Any]) -> str:
 
 
 def _render_reference_approval(state: dict[str, Any]) -> str:
+    continuity_header = prompt_design.summary(state)
     if state.get("schema_version", 0) >= 9 and advanced.needs_extended_report(state):
-        return advanced.render_references(state)
+        return continuity_header + advanced.render_references(state)
     narration = state["plan"]["narration"]
     narration_summary = audio_routing.summary(state["plan"]) if state.get("schema_version", 0) >= 10 else (
         f"启用，{narration['voice_name']}（{narration['voice_id']}）"
@@ -2180,7 +2219,7 @@ def _render_reference_approval(state: dict[str, Any]) -> str:
               f"旁白窗口：{narration_window({'narration': voice}, full_duration)}（起始秒，最多持续秒）；与分段无关。" if voice['enabled'] else ""]
     if state.get("schema_version",0)>=9:
         lines += ["", advanced.frozen_summary(state)]
-    return "\n".join(lines)
+    return continuity_header + "\n".join(lines)
 
 
 def _render_delivery(manifest: dict[str, Any]) -> str:
@@ -2262,6 +2301,7 @@ def _parser() -> argparse.ArgumentParser:
     config.add_argument('--provider', default='auto', choices=['auto','wxart','cangyuan'])
     config.add_argument('--output-resolution', default='720p', choices=['720p','1080p'])
     config.add_argument('--strategy', default='auto', choices=['auto', *caps.STRATEGIES])
+    config.add_argument('--prompt-limits', type=Path, help='JSON mapping provider:model to documented character/UTF-8 byte limits; no guessed defaults')
     check = sub.add_parser('check-channel', help='GET-only model visibility; never a generation test')
     check.add_argument('--model', required=True)
     check.add_argument('--provider', default='auto', choices=['auto','wxart','cangyuan'])
@@ -2286,7 +2326,8 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "capabilities":
         result = {name: caps.route(name) for name in caps.ROUTES}
     elif args.command == "configure":
-        result = caps.configure(args.model, args.provider, args.output_resolution, args.strategy)
+        result = caps.configure(args.model, args.provider, args.output_resolution, args.strategy,
+            prompt_limits_config=_read_json(args.prompt_limits) if args.prompt_limits else None)
     elif args.command == "check-channel":
         result = advanced.check_channel(caps.route(args.model, args.provider))
     elif args.command == "review-continuity":

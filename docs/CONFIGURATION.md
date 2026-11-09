@@ -81,3 +81,9 @@ python3 scripts/commercial_ad.py configure --model mm2-minimax-h3
 生成调用由第三方收费，以账号当前报价为准。方案会展示预计生成段数、旁白调用与有限恢复额度；提交结果不明时停止新增收费请求，运行 `resume` 查询原任务。
 
 视频供应商需要公开 HTTPS 图片。确认参考图与视频阶段后，cloudflared 临时公开批准清单中的生成参考图；原商品照片、未采用草稿与密钥不在清单中。临时地址不是永久托管，旧任务不通过换地址重新提交。API 细节见 [合同与恢复](../.agents/skills/3d-sygg/references/api-contracts.md)。
+
+## 5. 提示词长度限制（AI 安装维护时配置）
+
+图片与视频提示词不使用猜测的统一字符上限。请 AI 根据实际供应商文档登记限制和核对日期：视频配置 `prompt_limits` 按 `provider:model` 保存，独立图片配置 `prompt_limit` 保存单条规则。支持 `max_characters`、`max_utf8_bytes`，并要求 `source`、`checked_at`；不得把 token 上限当字符数填写。未取得可靠依据时保留未知状态。
+
+新项目在方案阶段生成 `prompt-check.json`，已知超限会在付费前拦截；默认与备用视频通道分别检查。配置只影响后续新项目，已有批准记录保持原样。详见 [提示词设计与配置字段](../.agents/skills/3d-sygg/references/prompt-design.md)。

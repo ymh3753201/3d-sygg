@@ -43,6 +43,12 @@ def validate_target(state):
         raise ValidationError('Frozen frame count does not match duration')
 
 def video_prompt(builder, clip, cap):
+    try:
+        from . import prompt_design
+    except ImportError:
+        import prompt_design
+    if prompt_design.enabled(builder.plan):
+        return prompt_design.video(builder, clip, cap, audio_routing.prompt(builder.plan, clip))
     if cap['family']=='omni':
         return builder.omni_prompt(clip)
     strategy=clip['execution_strategy']
@@ -461,6 +467,9 @@ def frame_prompts(builder,clip):
     last = clip['shots'][-1]['shot_id']
     result[first] += '\nOpening transition visual state: ' + clip['transition_in']
     result[last] += '\nClosing transition visual state: ' + clip['transition_out']
+    if builder.plan.get('prompt_design_version') == 1:
+        result[first] += '\nApproved entry state: ' + clip['entry_state']
+        result[last] += '\nApproved exit state: ' + clip['exit_state']
     if clip['execution_strategy']=='first_last':
         result['start_frame'] = result[clip['shots'][0]['shot_id']] + '\nPrecisely show the approved opening state: ' + clip['entry_state']
         result['end_frame'] = result[clip['shots'][-1]['shot_id']] + '\nPrecisely show the approved resolved state: ' + clip['exit_state']

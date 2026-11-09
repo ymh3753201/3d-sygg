@@ -4,6 +4,8 @@
 
 新项目 `schema_version=10`，声音路由见 [声音规则](voice-routing.md)。schema 8/9 的已批准声音方案保留。版本 7 保留已知任务恢复入口，不自动迁移批准内容，不允许旧项目重新付费。更早版本需单独核对旧账本，不应直接改版本号冒充兼容。
 
+新 prepare 增加 `plan.prompt_design_version=1`：`audio.shared` / `audio.speakers` 定义统一文字声音，片段有意变化填 `audio.change_reason`；`transition_mode=cut|match_action` 描述切镜或动作接力，`sequence_context` 由脚本生成相邻边界。`provider_contract.prompt_limits` 冻结按服务商模型区分的长度依据，`prompt-check.json` 记录检查结果。具体说明见 [分段与精简提示词](prompt-design.md)。这些字段不改变段数、资产角色或调用预算；旧项目不迁移。
+
 状态：`awaiting_plan_approval → awaiting_reference_approval → approved_for_generation → generating → awaiting_manual_review → delivered`。异常为 `failed` / `submission_unknown`。技术合格后仍待看图、观看与试听，不自动交付。
 
 ## 分析与方案

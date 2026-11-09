@@ -24,11 +24,13 @@ try:
         Keychain, CREDENTIAL_ENV_NAMES, CREDENTIAL_SOURCE_PATH_ENV, CREDENTIAL_SOURCE_FILES,
         atomic_write_json, canonical_hash, sha256_file, validate_reference_image, file_lock)
     from .media import probe_media
+    from . import prompt_limits
 except ImportError:
     from providers import (ValidationError, ProviderError, SubmissionUnknown, PaidRequestBlocked,
         Keychain, CREDENTIAL_ENV_NAMES, CREDENTIAL_SOURCE_PATH_ENV, CREDENTIAL_SOURCE_FILES,
         atomic_write_json, canonical_hash, sha256_file, validate_reference_image, file_lock)
     from media import probe_media
+    import prompt_limits
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / 'config/image.local.json'
@@ -82,10 +84,12 @@ def validate_config(value):
     allowed = {'provider', 'base_url', 'model', 'protocol', 'generate_path', 'edit_path',
         'image_field', 'model_field', 'prompt_field', 'size', 'size_field', 'extra_body',
         'response', 'async', 'key_env', 'auth_header', 'auth_prefix', 'documentation',
-        'max_reference_images', 'timeout', 'max_attempts_per_asset', 'unit_cost_upper_bound', 'price_checked_at'}
+        'max_reference_images', 'timeout', 'max_attempts_per_asset', 'unit_cost_upper_bound', 'price_checked_at', 'prompt_limit'}
     if set(value) - allowed:
         raise ValidationError('Unknown image configuration fields; never store a Key in configuration')
     config = copy.deepcopy(value)
+    if 'prompt_limit' in config:
+        config['prompt_limit'] = prompt_limits.validate_rule(config['prompt_limit'])
     if config.get('provider') == 'builtin':
         if set(config) != {'provider'}:
             raise ValidationError('Built-in image configuration needs only provider=builtin')
@@ -229,6 +233,7 @@ class ImageClient:
 
     def build_request(self, prompt, inputs):
         c = self.config
+        prompt_limits.check(prompt, c.get('prompt_limit'), label='image request')
         if len(inputs) > c['max_reference_images']:
             raise ValidationError('Image API reference limit exceeded; never silently discard product photos')
         fields = copy.deepcopy(c['extra_body'])
@@ -338,6 +343,7 @@ def generate(orchestrator, asset, inputs, *, retry_reason=None, resume=False, ke
         inputs = [Path(p).expanduser().resolve() for p in inputs]
         for p in inputs: validate_reference_image(p)
         prompt, role = asset_spec(generated_globals(project, state), asset, inputs)
+        prompt_limits.check(prompt, config.get('prompt_limit'), label='image:' + asset)
         ledger_path = project / 'requests/image-tasks.json'
         rows = json.loads(ledger_path.read_text()) if ledger_path.exists() else []
         history = [r for r in rows if r['asset'] == asset]

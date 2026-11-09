@@ -59,17 +59,32 @@ def read_config(path=CONFIG):
     if not path.exists():
         return {'model':'omni', 'provider':'auto', 'output_resolution':'720p', 'strategy':'auto'}
     value = json.loads(path.read_text())
-    if not isinstance(value, dict) or any(k not in {'model','provider','output_resolution','strategy'} for k in value):
-        raise ValidationError('Configuration supports model, provider, output_resolution and strategy only; never store keys')
+    if not isinstance(value, dict) or any(k not in {'model','provider','output_resolution','strategy','prompt_limits'} for k in value):
+        raise ValidationError('Configuration supports model, provider, output_resolution, strategy and prompt_limits only; never store keys')
+    if 'prompt_limits' in value:
+        _prompt_limits().validate_routes(value['prompt_limits'])
     route(value.get('model','omni'), value.get('provider','auto'))
     return value
 
-def configure(model, provider='auto', output_resolution='720p', strategy='auto', path=CONFIG):
+def _prompt_limits():
+    try:
+        from . import prompt_limits
+    except ImportError:
+        import prompt_limits
+    return prompt_limits
+
+
+def configure(model, provider='auto', output_resolution='720p', strategy='auto', path=CONFIG, *, prompt_limits_config=None):
     cap = route(model, provider)
     source_resolution(cap, output_resolution)
     if strategy not in ('auto', *STRATEGIES):
         raise ValidationError('Unknown storyboard strategy')
     value = dict(model=model, provider=provider, output_resolution=output_resolution, strategy=strategy)
+    existing = read_config(path).get('prompt_limits', {})
+    if prompt_limits_config is not None:
+        existing = _prompt_limits().validate_routes(prompt_limits_config)
+    if existing:
+        value['prompt_limits'] = existing
     atomic_write_json(path, value)
     return value
 
@@ -205,7 +220,11 @@ def prepare_timeline(plan, target_duration, cap, strategy='auto', validation_run
                             entry_state=c.get('entry_state', s['visual']) if j==0 else s.get('entry_state', s['visual']),
                             exit_state=c.get('exit_state', s['action']) if j==len(c['shots'])-1 else s.get('exit_state', s['action']),
                             transition_in=c['transition_in'] if j==0 else c['shots'][j-1]['transition'],
-                            transition_out=c['transition_out'] if j==len(c['shots'])-1 else s['transition'])
+                            transition_out=c['transition_out'] if j==len(c['shots'])-1 else s['transition'],
+                            transition_mode=c.get('transition_mode', 'cut') if j==0 else s.get('transition_mode', 'cut'))
+                if item['transition_mode'] == 'match_action' and 'entry_state' not in (c if j==0 else s):
+                    # Leave omitted boundaries for prompt normalization to inherit.
+                    item.pop('entry_state')
                 expanded.append(item); prior=end
         else:
             c.update(keep_frames=n,overlap_frames=o)
