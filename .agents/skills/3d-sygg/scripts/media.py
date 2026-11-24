@@ -97,13 +97,14 @@ def normalize_clip(
     target_height: int,
     trim_start: float = 0,
     align_frames: bool = False,
+    mute_source: bool = False,
 ) -> Path:
     ffmpeg, _ = require_media_tools()
     if not math.isfinite(keep_duration) or keep_duration <= 0 or not math.isfinite(trim_start) or trim_start < 0:
         raise ValidationError("Clip duration and trim start must be finite and valid")
     if target_width <= 0 or target_height <= 0:
         raise ValidationError("Target video dimensions must be positive")
-    signature = canonical_hash([sha256_file(source), round(keep_duration * TARGET_FPS), trim_start, target_width, target_height, TARGET_FPS] + (['frame-boundary-v1'] if align_frames else []))
+    signature = canonical_hash([sha256_file(source), round(keep_duration * TARGET_FPS), trim_start, target_width, target_height, TARGET_FPS] + (['frame-boundary-v1'] if align_frames else []) + (['mute-source'] if mute_source else []))
     receipt = output.with_suffix('.normalize.json')
     if output.is_file() and receipt.is_file():
         cached = json.loads(receipt.read_text())
@@ -115,10 +116,13 @@ def normalize_clip(
     if info["video_duration"] + 1 / TARGET_FPS + 1e-6 < keep_duration + trim_start:
         raise ValidationError("Video result is shorter than the approved usable interval")
     output.parent.mkdir(parents=True, exist_ok=True)
-    command = [ffmpeg, "-y", "-i", str(source), "-ss", f"{trim_start:.9f}"]
-    if not info["has_audio"]:
+    command = [ffmpeg, "-y", "-i", str(source)]
+    if mute_source:
+        command += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
+    elif not info["has_audio"]:
         raise ValidationError("Omni result has no ambient SFX audio track; do not replace it with artificial silence")
-    audio_map = "0:a:0"
+    command += ["-ss", f"{trim_start:.9f}"]
+    audio_map = "1:a:0" if mute_source else "0:a:0"
     video_filter = (
         f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
         f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps={TARGET_FPS}"
@@ -212,7 +216,7 @@ def extract_review_frames(video: Path, output_dir: Path, *, count: int = 6, time
 
 def full_decode_check(video: Path) -> None:
     ffmpeg, _ = require_media_tools()
-    _run([ffmpeg, "-v", "error", "-i", str(video), "-f", "null", "-"], timeout=900)
+    _run([ffmpeg, "-v", "error", "-xerror", "-i", str(video), "-f", "null", "-"], timeout=900)
 
 
 def write_qa_report(
@@ -224,6 +228,7 @@ def write_qa_report(
     expected_width: int,
     expected_height: int,
     expected_frames: int | None = None,
+    check_dry_audio: bool = False,
 ) -> dict[str, Any]:
     info = probe_media(video)
     decode_ok = True
@@ -277,7 +282,8 @@ def write_qa_report(
             "人物模式下手部结构、握持和商品交互是否自然可信",
             "跨段匹配剪辑是否自然",
             "是否出现意外人物对白或人声",
-            "旁白、环境音和冲击音听感是否专业",
+            *(["全片是否只有批准的人声和动作音效，无配乐、持续环境声或意外底声",
+               "同一角色跨段的音色、品牌读音与语速是否连续"] if check_dry_audio else ["旁白、环境音和冲击音听感是否专业"]),
         ],
     }
     atomic_write_json(report_path, report)

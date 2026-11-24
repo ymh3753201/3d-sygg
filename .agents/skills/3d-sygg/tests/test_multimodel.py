@@ -46,7 +46,7 @@ class MultiModelTests(unittest.TestCase):
                 rows.append(dict(role=role,shot_id=sid,path=str(path),origin='codex_imagegen',clip_index=c['index'],
                     identity_verified=True,directly_generated=True,clean_for_video=True,panel_order_verified=True,distinct_panels_verified=True,
                     panel_count=len(c['shots']),derived_from_product_master_sha256=pv.sha256_file(master)))
-        o.approve_plan();o.register_references({'references':rows});o.approve_references()
+        o.approve_plan(copy_effects="on");o.register_references({'references':rows});o.approve_references()
         return rows
     def test_documented_is_not_verified(self):
         for model in list(cap.ROUTES)[1:]:

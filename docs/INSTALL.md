@@ -26,7 +26,7 @@ cd 3d-sygg
 python3 .agents/skills/3d-sygg/scripts/commercial_ad.py capabilities
 ```
 
-方式 B：把 Skill 安装到自己的工作项目。先下载 [Release](https://github.com/ymh3753201/3d-sygg/releases/latest) 中的 `3d-sygg-v2.3.0.zip`，解压得到 `3d-sygg/`。将这个文件夹放入工作项目的 `.agents/skills/`，最终结构必须是：
+方式 B：从 [GitHub 最新版本](https://github.com/ymh3753201/3d-sygg/releases/latest) 下载 `3d-sygg-v版本号.zip`，解压得到 `3d-sygg/`。将这个文件夹放入工作项目的 `.agents/skills/`：
 
 ```text
 你的项目/
@@ -67,7 +67,7 @@ python3 scripts/commercial_ad.py check-channel --model omni
 
 ## 4. 开始制作
 
-在 Codex 中提供商品照片、本次诉求、目标时长与投放比例。AI 负责准备分析和方案文件，你只需确认方案与真实参考图。执行者完整规则见 [SKILL.md](../.agents/skills/3d-sygg/SKILL.md)。
+在 Codex 中提供商品照片或宣传脚本，说明目标时长与投放比例。先确认广告方案和是否添加画面文案特效，再确认实际参考图。执行细节见 [SKILL.md](../.agents/skills/3d-sygg/SKILL.md)。
 
 ## 5. 更新版本
 

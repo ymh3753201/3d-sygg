@@ -4,9 +4,13 @@
 
 新项目 `schema_version=10`，声音路由见 [声音规则](voice-routing.md)。schema 8/9 的已批准声音方案保留。版本 7 保留已知任务恢复入口，不自动迁移批准内容，不允许旧项目重新付费。更早版本需单独核对旧账本，不应直接改版本号冒充兼容。
 
+新 prepare 采用 `plan.prompt_design_version=2`：`audio.shared.voice` / `audio.speakers` 定义固定音色，实际执行时按生成段数选择声音，单段保留完整设计，多段省去配乐与环境底声；`copy_effects` 与 `ad_copy` 同时冻结，首次批准须传入用户选择 `--copy-effects on/off`；`transition_mode=cut|match_action` 描述切镜或动作接力，`sequence_context` 由脚本生成相邻边界。`provider_contract.prompt_limits` 冻结按服务商模型区分的长度依据，`prompt-check.json` 记录检查结果。具体说明见 [分段与精简提示词](prompt-design.md)。这些字段不改变段数、资产角色或调用预算；旧项目不迁移。
+
 状态：`awaiting_plan_approval → awaiting_reference_approval → approved_for_generation → generating → awaiting_manual_review → delivered`。异常为 `failed` / `submission_unknown`。技术合格后仍待看图、观看与试听，不自动交付。
 
 ## 分析与方案
+
+只有宣传脚本时使用 `source_mode=promotional_script`，填 `script_brief`、`source_images=[]` 和计划中的主视觉特征。脚本设定与真实商品图证据分别标明。
 
 `analysis` 必填：`source_images`（1–6 个绝对路径）、`product_type`、`visible_features`、`materials`、`colors`（#RRGGBB 数组）、`uncertainties`。`logo_text` 可选。脚本将原图保存到项目私有 `private/source-images/`，冻结 SHA-256 和解码像素指纹，并把 analysis.source_images 指向持久快照。original_path 保留来源位置；临时剪贴板消失不影响后续生图。快照不在参考图登记目录或发布白名单内，只供生图与事实核对。
 
@@ -20,7 +24,7 @@
 
 人物模式：`mode=human_interaction`、`adult_only=true`、`framing` 为 hands_only/partial_body/face_and_body，必填 `persona`、`wardrobe`、`grooming`、`identity_anchor`、非空 `interaction_actions`；需要出镜的段写 `talent_action`，不出镜的段留空。允许混合；至少一段确实出镜才使用人物模式。具体内容由商品和广告创意决定。
 
-默认 `audio={"mode":"video","speech":true}`；`narration={"enabled":false,"text":"","reason":"视频模型输出声音"}` 表示不使用独立语音，不表示禁人声。台词与声音方向写在 `clips[].audio` 的 `speech_text/voice/music/ambience`，逐镜生成改用 `shots[].audio`。无台词留空，明确不要人声时 audio.speech=false。
+默认 `audio={"mode":"video","speech":true}`；`narration={"enabled":false,"text":"","reason":"视频模型输出声音"}` 表示不使用独立语音，不表示禁人声。台词与声音方向写在 `clips[].audio` 的 `speech_text/voice`，逐镜生成改用 `shots[].audio`。无台词留空，明确不要人声时 audio.speech=false。
 
 独立语音仅在用户明确请求后使用：`audio.mode=external`、`audio.user_requested_external=true`（或 narration.user_requested=true）；`narration.enabled=true`，必填 text/voice_id/voice_name/reason。speed 可选 0.5–2；start_time/end_time 是全片开口和最晚结束秒数。音色必须从当前账号查询，实际音频须落在窗口内。
 
@@ -28,7 +32,7 @@
 
 | 字段 | 含义 |
 |---|---|
-| index | 从 1 连续编号；片段数 ceil(T/10) |
+| index | 从 1 连续编号；段数由全片故事、通道上限与转场重叠共同决定 |
 | narrative_role | 在全片中承担的独立叙事任务 |
 | storyboard_reason | 为什么选当前格数及节奏 |
 | shots | 1–4 个镜头；每镜 purpose/visual/action/product_detail/camera/transition |
@@ -85,11 +89,14 @@
 - approved_copy_only
 - no_collage_grid_or_unwanted_text
 - visual_quality_professional
+- no_background_music_or_ambience（多段或明确省略背景声时检查；单段完整声音不检查此项）
+- sfx_consistent（新多段项目记录跨段音效是否一致）
+- voice_identity_consistent（新版同一角色声音一致；无台词时核实没有意外人声）
 - audio_review_passed
 - motion_and_transitions_coherent
 - talent_identity_and_anatomy_preserved（纯产品无人物时检查未意外出现人物）
 
-任一项失败就继续待复核。不得仅因抽帧或技术测试通过而虚构试听结论。
+新多段项目若仅 voice_identity_consistent 或 sfx_consistent 不通过，在 notes 写明具体段号或时间点及差异，audio_review_passed 核实台词、可懂度、音效完整和同步。输出 audio_edit_required，交付拼接版、各段原片和已生成的独立旁白供人工后期。其他失败继续待复核。不得仅因抽帧或技术测试通过而虚构试听结论。
 
 ## 同项目自动恢复
 

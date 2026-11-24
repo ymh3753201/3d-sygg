@@ -55,6 +55,27 @@ class PostproductionTests(unittest.TestCase):
                         '-c:a','libmp3lame',str(voice)],check=True,capture_output=True)
         return *paths, voice
 
+    def test_muting_an_approved_silent_segment_removes_audio_and_invalidates_cache(self):
+        red, _, _ = self.fixture_media()
+        output = self.root/'normalized.mp4'
+        def samples():
+            return subprocess.check_output(['ffmpeg', '-v', 'error', '-i', str(output), '-map', '0:a:0',
+                                            '-f', 's16le', '-'])
+        dimensions = {'target_width': 320, 'target_height': 180}
+        media.normalize_clip(red, output, 1, **dimensions)
+        self.assertTrue(any(samples()))
+        media.normalize_clip(red, output, 1, mute_source=True, **dimensions)
+        pcm = samples()
+        self.assertTrue(pcm)
+        self.assertFalse(any(pcm))
+        p = fixtures.sample_plan(narration=True)
+        p['audio'] = {'omit_background': True}
+        p['clips'][0]['sfx'] = ''
+        o = ad.AdOrchestrator.create('voice-only', self.root)
+        state = o.prepare(fixtures.analysis_with_source(self.root), p, target_duration=10)
+        self.assertTrue(ad.audio_routing.mute_source(state['plan'], state['clips'][0]))
+        self.assertTrue(state['plan']['narration']['enabled'])
+
     def test_revised_clip_returns_to_20s_parent_and_keeps_one_full_narration(self):
         red, blue, voice = self.fixture_media()
         class Http:
@@ -153,6 +174,28 @@ class PostproductionTests(unittest.TestCase):
         parent.omni_factory.return_value.submit.assert_not_called()
         parent.resume()
         self.assertEqual(http.request_json.call_count, 1)
+
+    def test_multi_audio_mismatch_hands_off_unchanged_mix_and_sources(self):
+        parent = self.parent(False)
+        a, b, _ = self.fixture_media()
+        for index, raw in enumerate((a, b), 1):
+            parent.ledger.append(provider='omni', event='downloaded', task_id=str(index),
+                                 clip_index=index, path=str(raw), sha256=pv.sha256_file(raw))
+        result = parent._assemble(parent.load(), [a, b], None)
+        final = Path(result['final_video'])
+        digest = pv.sha256_file(final)
+        checks = dict.fromkeys(ad.CREATIVE_REVIEW_CHECKS, True)
+        checks.update(sfx_consistent=False, voice_identity_consistent=False)
+        review = {'reviewer': 'fixture', 'checks': checks, 'notes': '第2段 10秒，声音接缝'}
+        checks['no_background_music_or_ambience'] = False
+        self.assertEqual(parent.complete_review(review)['status'], 'awaiting_manual_review')
+        checks['no_background_music_or_ambience'] = True
+        result = parent.complete_review(review)
+        self.assertEqual(result['status'], 'delivered')
+        self.assertEqual(result['creative_review_status'], 'audio_edit_required')
+        self.assertEqual([r['path'] for r in result['audio_edit']['clips']], [str(a), str(b)])
+        self.assertEqual(pv.sha256_file(final), digest)
+        self.assertIn(review['notes'], (parent.project_dir/'delivery.md').read_text())
 
     def test_replacement_cannot_change_parent_duration_or_drop_parent_link(self):
         parent=self.parent(False);s=parent.load();s['state']='failed';parent.save(s)

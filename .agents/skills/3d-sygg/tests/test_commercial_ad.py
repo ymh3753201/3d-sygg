@@ -427,7 +427,7 @@ class StateWorkflowTests(unittest.TestCase):
 
     def _register(self, orchestrator: AdOrchestrator, clip_count: int) -> tuple[Path, list[Path]]:
         product, storyboards, rows = self._reference_rows(orchestrator, clip_count)
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         orchestrator.register_references({"references": rows})
         return product, storyboards
 
@@ -574,7 +574,7 @@ class StateWorkflowTests(unittest.TestCase):
 
     def test_prepare_cannot_overwrite_a_project_after_plan_approval(self) -> None:
         orchestrator = self._project()
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "new project-id"):
             orchestrator.prepare(analysis_with_source(self.root, seed=901), sample_plan(), target_duration=10)
 
@@ -583,7 +583,7 @@ class StateWorkflowTests(unittest.TestCase):
         source = Path(orchestrator.load()["source_assets"][0]["path"])
         source.write_bytes(png_bytes(999))
         with self.assertRaisesRegex(ValidationError, "Frozen source image is missing or changed"):
-            orchestrator.approve_plan()
+            orchestrator.approve_plan(copy_effects="on")
 
     def test_legacy_project_schema_fails_with_clear_rebuild_message(self) -> None:
         orchestrator = self._project()
@@ -597,7 +597,7 @@ class StateWorkflowTests(unittest.TestCase):
         orchestrator = self._project()
         raw_copy = orchestrator.project_dir / "references" / "raw-product.png"
         raw_copy.write_bytes(png_bytes(77))
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "Raw product references are forbidden"):
             orchestrator.register_references(
                 {"references": [{"role": "product", "path": str(raw_copy.resolve())}]}
@@ -609,7 +609,7 @@ class StateWorkflowTests(unittest.TestCase):
         source = Path(state["source_assets"][0]["path"])
         product_master = orchestrator.project_dir / "references" / "product-master.png"
         product_master.write_bytes(source.read_bytes())
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "raw source image or an identical-pixel copy"):
             orchestrator.register_references(
                 {
@@ -633,7 +633,7 @@ class StateWorkflowTests(unittest.TestCase):
         fake_style = orchestrator.project_dir / "references" / "style.png"
         fake_style.write_bytes(source.read_bytes())
         rows.append({"role": "style", "path": str(fake_style.resolve()), "origin": "user_provided"})
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "cannot be registered as style or sent to Omni"):
             orchestrator.register_references({"references": rows})
 
@@ -684,7 +684,7 @@ class StateWorkflowTests(unittest.TestCase):
     def test_storyboard_lineage_and_panel_count_are_required(self) -> None:
         orchestrator = self._project()
         _, _, rows = self._reference_rows(orchestrator, 1)
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         broken_lineage = [dict(row) for row in rows]
         broken_lineage[1]["derived_from_product_master_sha256"] = "wrong"
         with self.assertRaisesRegex(ValidationError, "generated from the approved product_master"):
@@ -699,7 +699,7 @@ class StateWorkflowTests(unittest.TestCase):
         product, _, rows = self._reference_rows(orchestrator, 1)
         product.write_bytes(png_bytes(71, width=16, height=9))
         rows[1]["derived_from_product_master_sha256"] = commercial_ad.sha256_file(product)
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         state = orchestrator.register_references({"references": rows})
         self.assertEqual(state["reference_sets"]["1"][0]["role"], "storyboard_reference")
 
@@ -707,7 +707,7 @@ class StateWorkflowTests(unittest.TestCase):
         orchestrator = self._project()
         _, storyboards, rows = self._reference_rows(orchestrator, 1)
         storyboards[0].write_bytes(png_bytes(72, width=9, height=16))
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         state = orchestrator.register_references({"references": rows})
         self.assertEqual(state["reference_sets"]["1"][0]["width"], 9)
         self.assertEqual(state["reference_sets"]["1"][0]["height"], 16)
@@ -716,7 +716,7 @@ class StateWorkflowTests(unittest.TestCase):
         orchestrator = self._project()
         _, storyboards, rows = self._reference_rows(orchestrator, 1)
         storyboards[0].write_bytes(png_bytes(73, width=240, height=100))
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         state = orchestrator.register_references({"references": rows})
         execution = state["reference_sets"]["1"][0]
         self.assertEqual((execution["width"], execution["height"]), (240, 100))
@@ -726,7 +726,7 @@ class StateWorkflowTests(unittest.TestCase):
         orchestrator = self._project()
         _, _, rows = self._reference_rows(orchestrator, 1)
         rows[1].pop("clean_for_video")
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "clean_for_video=true"):
             orchestrator.register_references({"references": rows})
 
@@ -734,7 +734,7 @@ class StateWorkflowTests(unittest.TestCase):
         orchestrator = self._project()
         _, _, rows = self._reference_rows(orchestrator, 1)
         rows[1].pop("distinct_panels_verified")
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "distinct_panels_verified=true"):
             orchestrator.register_references({"references": rows})
 
@@ -748,7 +748,7 @@ class StateWorkflowTests(unittest.TestCase):
         orchestrator = AdOrchestrator.create("four-panel", self.root / "outputs")
         orchestrator.prepare(analysis_with_source(self.root, seed=905), plan, target_duration=10)
         _, _, rows = self._reference_rows(orchestrator, 1)
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         state = orchestrator.register_references({"references": rows})
         self.assertEqual(len(state["reference_sets"]["1"]), 2)
         self.assertEqual(state["reference_sets"]["1"][0]["role"], "storyboard_reference")
@@ -763,7 +763,7 @@ class StateWorkflowTests(unittest.TestCase):
         _, _, rows = self._reference_rows(orchestrator, 1)
         talent = orchestrator.project_dir / "references" / "adult-talent.png"
         talent.write_bytes(png_bytes(60))
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "requires exactly one global talent"):
             orchestrator.register_references({"references": rows})
         for row in rows:
@@ -782,7 +782,7 @@ class StateWorkflowTests(unittest.TestCase):
         _, _, rows = self._reference_rows(orchestrator, 1)
         talent = orchestrator.project_dir / "references" / "adult-talent.png"
         talent.write_bytes(png_bytes(60))
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "must not include a talent"):
             orchestrator.register_references(
                 {
@@ -797,7 +797,7 @@ class StateWorkflowTests(unittest.TestCase):
         paths = {name: orchestrator.project_dir / "references" / f"{name}.png" for name in ("talent", "style")}
         paths["talent"].write_bytes(png_bytes(60))
         paths["style"].write_bytes(png_bytes(80))
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "encode style in the storyboard"):
             orchestrator.register_references(
                 {
@@ -830,7 +830,7 @@ class StateWorkflowTests(unittest.TestCase):
     def test_reference_limit_requires_one_storyboard_per_clip(self) -> None:
         orchestrator = self._project()
         product, _, rows = self._reference_rows(orchestrator, 1)
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "exactly one storyboard"):
             orchestrator.register_references(
                 {"references": [rows[0]]}
@@ -840,7 +840,7 @@ class StateWorkflowTests(unittest.TestCase):
         orchestrator = self._project()
         product = orchestrator.project_dir / "references" / "product-master.png"
         product.write_bytes(b"not-an-image")
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "PNG, JPEG, or WebP"):
             orchestrator.register_references(
                 {
@@ -865,7 +865,7 @@ class StateWorkflowTests(unittest.TestCase):
         product.write_bytes(PNG_BYTES)
         storyboard.write_bytes(PNG_BYTES)
         state = orchestrator.load()
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "exact duplicates"):
             orchestrator.register_references(
                 {
@@ -901,7 +901,7 @@ class StateWorkflowTests(unittest.TestCase):
         storyboard.write_bytes(png_bytes(41, width=9, height=16, comment="storyboard encoding"))
         state = orchestrator.load()
         product_hash = commercial_ad.sha256_file(product)
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "identical decoded pixels"):
             orchestrator.register_references(
                 {
@@ -938,7 +938,7 @@ class StateWorkflowTests(unittest.TestCase):
         first.write_bytes(png_bytes(200, comment="first encoding"))
         second.write_bytes(png_bytes(200, comment="second encoding"))
         state = orchestrator.load()
-        orchestrator.approve_plan()
+        orchestrator.approve_plan(copy_effects="on")
         with self.assertRaisesRegex(ValidationError, "identical decoded pixels"):
             orchestrator.register_references(
                 {
@@ -1091,6 +1091,12 @@ class StateWorkflowTests(unittest.TestCase):
         failed = orchestrator.complete_review({"reviewer": "codex-vision", "checks": checks})
         self.assertEqual(failed["status"], "awaiting_manual_review")
         checks["storyboard_sequence_followed"] = True
+        checks["no_background_music_or_ambience"] = False  # Single clip may contain designed backgrounds.
+        for check in ("voice_identity_consistent",):
+            checks[check] = False
+            held = orchestrator.complete_review({"reviewer": "codex-vision", "checks": checks})
+            self.assertEqual(held["status"], "awaiting_manual_review")
+            checks[check] = True
         passed = orchestrator.complete_review({"reviewer": "codex-vision", "checks": checks})
         self.assertEqual(passed["status"], "delivered")
         self.assertFalse(passed["manual_review_required"])

@@ -158,7 +158,7 @@ except PaidRequestBlocked:
         project = self._project()
         with pv.file_lock(project.project_dir / '.operation.lock'):
             with self.assertRaises(pv.PaidRequestBlocked):
-                project.approve_plan()
+                project.approve_plan(copy_effects="on")
         self.assertEqual(project.load()['state'], 'awaiting_plan_approval')
 
     def test_reference_role_options_bind_only_real_uploaded_images(self):
@@ -185,7 +185,7 @@ except PaidRequestBlocked:
         self.assertEqual([c['keep_duration'] for c in state['clips']], [9, 6])
         self.assertAlmostEqual(state['clips'][0]['shots'][-1]['end'], 8.6)
         self.assertEqual(state['paid_counts']['omni'], 2)
-        project.approve_plan()
+        project.approve_plan(copy_effects="off")
         state = project.load()
         state['clips'][0]['execution_reference_roles'].append('product_master')
         project.save(state)

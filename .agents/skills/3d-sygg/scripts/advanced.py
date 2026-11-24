@@ -11,7 +11,7 @@ from pathlib import Path
 try:
     from . import capabilities as caps
     from . import media
-    from . import audio_routing
+    from . import audio_routing, prompt_design
     from .providers import (CangyuanClient, OmniClient, MiniMaxClient, TaskLedger, Keychain,
         KEYCHAIN_ACCOUNT, CANGYUAN_KEYCHAIN_SERVICE, OMNI_KEYCHAIN_SERVICE, MINIMAX_KEYCHAIN_SERVICE,
         CREDENTIAL_ENV_NAMES, ValidationError, ProviderError, PaidRequestBlocked, SubmissionUnknown,
@@ -19,7 +19,7 @@ try:
 except ImportError:
     import capabilities as caps
     import media
-    import audio_routing
+    import audio_routing, prompt_design
     from providers import (CangyuanClient, OmniClient, MiniMaxClient, TaskLedger, Keychain,
         KEYCHAIN_ACCOUNT, CANGYUAN_KEYCHAIN_SERVICE, OMNI_KEYCHAIN_SERVICE, MINIMAX_KEYCHAIN_SERVICE,
         CREDENTIAL_ENV_NAMES, ValidationError, ProviderError, PaidRequestBlocked, SubmissionUnknown,
@@ -43,6 +43,8 @@ def validate_target(state):
         raise ValidationError('Frozen frame count does not match duration')
 
 def video_prompt(builder, clip, cap):
+    if prompt_design.enabled(builder.plan):
+        return prompt_design.video(builder, clip, cap, audio_routing.prompt(builder.plan, clip))
     if cap['family']=='omni':
         return builder.omni_prompt(clip)
     strategy=clip['execution_strategy']
@@ -394,7 +396,7 @@ def stitch_timeline(paths,clips,output):
     if abs(info['video_duration']-accumulated/30)>1/30+.002:
         raise ValidationError('Assembled transition timeline differs from the approved frame count')
 
-def render_plan(s):
+def render_plan(s, *, ask=True):
     p=s['plan'];c=s['provider_contract'];t=s['target'];n=p['narration']
     lines=[f"# 3D sygg 完整广告方案：{s['project_id']}",'',f"核心创意：{p['big_idea']}",f"故事：{p['story_arc']}",
         f"风格：{p['style']}；{p['style_rationale']}",f"视听：{p['audiovisual_tone']}",
@@ -418,7 +420,9 @@ def render_plan(s):
         lines += ['','分镜生图设计：',clip['storyboard_prompt'] if clip['execution_strategy'] in ('full_storyboard','per_shot') else json.dumps(clip['frame_prompts'],ensure_ascii=False,indent=2),'','视频执行提示词：',clip['video_prompt'],'']
     lines += ['## 中文旁白',audio_routing.summary(p) if s['schema_version'] >= 10 else (n['text'] if n['enabled'] else '无旁白：'+n['reason']),json.dumps(c['narration_chunks'],ensure_ascii=False,indent=2),
         '', '商品母版提示词：',s['product_master_prompt'],'','人物参考提示词：',str(s['talent_reference_prompt']),
-        '', '等待确认：**确认方案并生成参考图**。参考图确认后才进行付费视频与旁白生成。']
+        '']
+    if ask:
+        lines.append(prompt_design.COPY_QUESTION if p.get('prompt_design_version') == 2 else '等待确认：**确认方案并生成参考图**。参考图确认后才进行付费视频与旁白生成。')
     return '\n'.join(lines)
 
 def render_references(s):
@@ -429,7 +433,7 @@ def render_references(s):
         for r in s['reference_sets'][str(c['index'])]:
             lines += [f"{r['order']}. {r['role']} {r.get('shot_id') or ''} / SHA256 {r['sha256']}",f"![{r['role']}]({r['path']})",'']
         if c.get('continuity_from'):lines.append('已计划使用前段保留区间末帧；生成后必须通过身份/动作检查再接续。')
-    lines += [render_plan(s).split('等待确认：')[0],'','等待确认：**确认参考图并生成视频**。']
+    lines += [render_plan(s, ask=False),'','等待确认：**确认参考图并生成视频**。']
     return '\n'.join(lines)
 
 def needs_extended_report(state):
@@ -454,6 +458,8 @@ def invalidate_dependents(state,index,new_hash):
 
 def frame_prompts(builder,clip):
     base = builder.global_anchor() + "\nGenerate ONE independent full-screen keyframe from the approved product master and applicable talent reference. Preserve exact product and branding, adult identity, wardrobe, set, light and palette. No collage, border, shot labels, timecodes or narration subtitles. No cropping an existing approved storyboard."
+    if builder.plan.get('prompt_design_version') == 2 and not builder.plan['copy_effects']:
+        base += ' No added titles, slogans, subtitles or animated lettering.'
     result = {}
     for shot in clip['shots']:
         result[shot['shot_id']] = base + f"\nShot {shot['shot_id']}: {shot['visual']}. Show a representative action state making this motion legible: {shot['action']}. Product details: {shot['product_detail']}. Camera composition: {shot['camera']}. Approved spatial graphics: {json.dumps(shot.get('graphics',[]),ensure_ascii=False)}."
@@ -461,6 +467,9 @@ def frame_prompts(builder,clip):
     last = clip['shots'][-1]['shot_id']
     result[first] += '\nOpening transition visual state: ' + clip['transition_in']
     result[last] += '\nClosing transition visual state: ' + clip['transition_out']
+    if builder.plan.get('prompt_design_version') in (1, 2):
+        result[first] += '\nApproved entry state: ' + clip['entry_state']
+        result[last] += '\nApproved exit state: ' + clip['exit_state']
     if clip['execution_strategy']=='first_last':
         result['start_frame'] = result[clip['shots'][0]['shot_id']] + '\nPrecisely show the approved opening state: ' + clip['entry_state']
         result['end_frame'] = result[clip['shots'][-1]['shot_id']] + '\nPrecisely show the approved resolved state: ' + clip['exit_state']

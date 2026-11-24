@@ -45,7 +45,7 @@ python3 scripts/commercial_ad.py configure --model omni
 - `first_last`：按 `frame_prompts.start_frame/end_frame` 直接生成首尾状态。角色为 `start_frame`、`end_frame`。沧元字段 `first_image_url` / `last_image_url`，其余母版/人物进入 `reference_image_urls`。不套用官方互斥模式到中转。
 - `per_shot`：保留导演原镜头动作/图文，把一组镜头展开成若干单镜请求并统一剪辑。镜头编号不变，生成次数和生图数量随实际展开结果在首次确认时展示。
 
-独立帧须 `origin=codex_imagegen`、`directly_generated=true`、`identity_verified=true`、`clean_for_video=true`，及原来的母版/人物来源哈希。不得裁切批准宫格冒充直接生成。首尾帧模式中，若已计划前段末帧接续，则不额外生成本段首帧。所有镜头保留商品品牌与广告图文；禁止宫格边框、静态翻页、无依据删 Logo。
+独立帧须 `origin=codex_imagegen`、`directly_generated=true`、`identity_verified=true`、`clean_for_video=true`，及原来的母版/人物来源哈希。不得裁切批准宫格冒充直接生成。首尾帧模式中，若已计划前段末帧接续，则不额外生成本段首帧。所有镜头保留商品本身的品牌标识，只有选择开启文案的方案才渲染指定广告文字；禁止宫格边框、静态翻页、无依据删 Logo。
 
 自动策略仅使用该通道已合格记录。新通道先以 `--validation-run` 建立单独验证计划，并提供 `plan.budget` 金额上限；仍需原方案/参考图两次确认，prepare 不调用模型。实片完整 `complete-review` 后，把该项目绝对路径加入下一计划 `qualification_projects`；系统复用相同通道和能力版本下的合格记录，校验批准与成片未被改动。单格故事板只证明单画面执行，可用于 `per_shot` 或单格 `full_storyboard`；两格及以上样片通过后，复用为本工作流 2–4 格的多宫格能力。不要求每个格数、合法时长、分辨率和画幅重新做付费验证。参数是否合法仍在请求前检查，实际成片照常观看试听，能力复用不代表每个组合均已实测。自动改用逐镜路线时，新增图片与视频调用次数在首次方案确认前计入，批准后不擅自改策略。连续接续还须成功项目中包含对应依赖镜头。普通用户制作无需选择技术策略。
 
@@ -64,7 +64,7 @@ python3 scripts/commercial_ad.py resume --project outputs/PROJECT
 
 review 包含 `clip_index`、待检查文件的 `sha256`、`reviewer`、三个真实检查布尔值 `identity_preserved/action_state_correct/no_grid_or_text_artifacts`。替换前段后需要同时检查新的末帧与原后段视频，并填 `successor_sha256`。这是 AI 素材质检，不新增用户确认步骤。未通过就不传播；需要新付费素材时沿现有局部修订确认流程处理。
 
-后期支持切镜和叠化，叠化使用 `overlap_before`，按帧准确计入总时长，不整体变速。归一化和转场本地缓存绑定源文件/参数哈希；本地导出失败只重做本地操作，不重付费。新版源片的单帧边界短缺（约 0.033 秒）在既有转码中延续末帧补齐，不能用此方式填充实质缺失的动作。最终利用已有媒体读取检查视频帧数和视频时长，容许整片一帧误差，音频封装尾差单独处理；不为数帧再全片解码一次。schema 7/8 保留原后期与验收容差。广告镜头源缺少计划音效轨时停止复核，不用静音掩盖。
+后期支持切镜和叠化，叠化使用 `overlap_before`，按帧准确计入总时长，不整体变速。归一化和转场本地缓存绑定源文件/参数哈希；本地导出失败只重做本地操作，不重付费。新版源片的单帧边界短缺（约 0.033 秒）在既有转码中延续末帧补齐，不能用此方式填充实质缺失的动作。最终利用已有媒体读取检查视频帧数和视频时长，容许整片一帧误差，音频封装尾差单独处理；不为数帧再全片解码一次。schema 7/8 保留原后期与验收容差。广告镜头源缺少计划人声或音效时停止复核。明确只要画面时填写空 sfx、无原生台词，后期使用静音轨或按方案贴统一旁白。
 
 ## 长旁白与预算
 

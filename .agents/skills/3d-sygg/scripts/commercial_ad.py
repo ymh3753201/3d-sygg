@@ -92,11 +92,13 @@ try:
     from . import advanced
     from . import audio_routing
     from . import image_api
+    from . import prompt_design, prompt_limits
 except ImportError:
     import capabilities as caps
     import advanced
     import audio_routing
     import image_api
+    import prompt_design, prompt_limits
 
 
 STYLE_NAMES = {
@@ -134,7 +136,7 @@ STORYBOARD_LAYOUTS = {
     3: ("three_panel", "3 分格"),
     4: ("four_panel", "4 分格"),
 }
-CREATIVE_REVIEW_CHECKS = (
+LEGACY_REVIEW_CHECKS = (
     "storyboard_sequence_followed",
     "product_identity_preserved",
     "approved_copy_only",
@@ -144,6 +146,9 @@ CREATIVE_REVIEW_CHECKS = (
     "motion_and_transitions_coherent",
     "talent_identity_and_anatomy_preserved",
 )
+
+
+CREATIVE_REVIEW_CHECKS = LEGACY_REVIEW_CHECKS + ("no_background_music_or_ambience", "voice_identity_consistent")
 
 
 def storyboard_reading_order(panel_count: int) -> str:
@@ -318,6 +323,11 @@ class VisualPromptBuilder:
         colors = ", ".join(str(item) for item in self.analysis["colors"])
         palette = self.plan["palette"]
         logo = str(self.analysis.get("logo_text") or "no invented logo text")
+        if self.analysis.get("source_mode") == "promotional_script":
+            return (f"Campaign identity: {self.analysis['product_type']}. Designed motifs: {visible}. "
+                    f"Materials: {materials}; colors: {colors}; branding: {logo}. "
+                    f"Keep the approved campaign reference and art direction: {self.plan['global_anchor']}. "
+                    + self.talent_anchor(include_talent=include_talent))
         return (
             f"PRODUCT ID LOCK: {self.analysis['product_type']}; exact silhouette, proportions, controls, "
             f"openings, label placement and geometry from the approved generated product master; "
@@ -334,6 +344,11 @@ class VisualPromptBuilder:
         materials = ", ".join(str(item) for item in self.analysis["materials"])
         colors = ", ".join(str(item) for item in self.analysis["colors"])
         logo = str(self.analysis.get("logo_text") or "no readable logo; do not invent one")
+        if self.analysis.get("source_mode") == "promotional_script":
+            return (f"Create one clean visual identity reference for the promotional film about {self.analysis['product_type']}. "
+                    f"User brief: {self.analysis['script_brief']}. Designed subject: {visible}. "
+                    f"Materials: {materials}. Palette: {colors}. Use the approved design, no invented commercial "
+                    "claims, real-product likeness, extra lettering, people, storyboard panels or captions.")
         input_roles = "; ".join(
             f"Image {index}: product identity evidence only"
             for index, _ in enumerate(self.analysis["source_images"], start=1)
@@ -405,6 +420,8 @@ class VisualPromptBuilder:
         )
 
     def storyboard_prompt(self, clip: dict[str, Any]) -> str:
+        if prompt_design.enabled(self.plan):
+            return prompt_design.storyboard(self, clip)
         panels = int(clip["storyboard_panel_count"])
         if panels not in STORYBOARD_LAYOUTS:
             raise ValidationError("Storyboard panel count must be between 1 and 4")
@@ -461,6 +478,8 @@ class VisualPromptBuilder:
         )
 
     def omni_prompt(self, clip: dict[str, Any]) -> str:
+        if prompt_design.enabled(self.plan):
+            return prompt_design.video(self, clip, {'family': 'omni'}, audio_routing.prompt(self.plan, clip))
         roles = execution_roles(self.plan, clip)
         panels = int(clip["storyboard_panel_count"])
         descriptions = {
@@ -555,6 +574,8 @@ class AdOrchestrator:
         if video_provider not in {"auto", "wxart", "cangyuan"}:
             raise ValidationError("video-provider must be auto, wxart, or cangyuan")
         plan = copy.deepcopy(plan)
+        plan.pop('sound_scope', None)  # Derived after per-shot expansion, never from the input draft.
+        plan['prompt_design_version'] = prompt_design.VERSION
         plan.setdefault("recovery_policy", {"max_video_retries_per_clip": 1})
         if (parent_project is None) != (replace_clip is None):
             raise ValidationError("parent-project and replace-clip must be supplied together")
@@ -563,6 +584,10 @@ class AdOrchestrator:
             if parent.project_dir == self.project_dir:
                 raise ValidationError("A replacement must have a separate immutable record")
             original = parent.load()
+            if original['plan'].get('prompt_design_version') != 2:
+                plan['prompt_design_version'] = 1
+            elif not original['plan']['copy_effects']:
+                plan['copy_effects'] = False
             parent._validate_generation_approval(original, allowed_states={"failed", "generating", "awaiting_manual_review"})
             if original["plan"].get("replacement_for"):
                 raise ValidationError("Replacement must point directly to the full advertisement")
@@ -570,6 +595,9 @@ class AdOrchestrator:
             if (not target_clip or target_duration != target_clip["keep_duration"]
                     or plan.get("aspect_ratio") != original["target"]["aspect_ratio"]):
                 raise ValidationError("Replacement must preserve parent clip duration and aspect ratio")
+            if (original['analysis'].get('source_mode') == 'promotional_script' and
+                    analysis != original['analysis']):
+                raise ValidationError("局部修订须沿用原宣传脚本与主视觉设定")
             original_hashes = {r["sha256"] for r in original["source_assets"]}
             if {sha256_file(Path(p)) for p in analysis.get("source_images", [])} != original_hashes:
                 raise ValidationError("Replacement must reuse the original product evidence")
@@ -582,6 +610,9 @@ class AdOrchestrator:
             raise ValidationError("Use parent-project and replace-clip to bind a replacement")
         if parent_project is not None:
             plan["audio"] = copy.deepcopy(original["plan"].get("audio") or {"mode": "external" if original["plan"]["narration"]["enabled"] else "video", "speech": False})
+            for row in plan.get('clips', []):
+                row.setdefault('audio', copy.deepcopy(target_clip.get('audio', {})))
+                row.setdefault('transition_mode', target_clip.get('transition_mode', 'cut'))
             if plan["audio"]["mode"] == "external":
                 plan["audio"]["user_requested_external"] = True
         audio_routing.normalize_plan(plan)
@@ -605,11 +636,32 @@ class AdOrchestrator:
         cap.update(execution_resolution=source_resolution, aspect_ratio=plan.get('aspect_ratio'))
         plan, keeps = caps.prepare_timeline(plan, target_duration, cap,
             strategy or config.get('strategy','auto'), validation_run)
+        if parent_project is None:
+            plan['sound_scope'] = 'single' if len(keeps) == 1 else 'multi'
+        elif 'sound_scope' in original['plan']:
+            plan['sound_scope'] = original['plan']['sound_scope']
         audio_routing.normalize_plan(plan)
         target_duration = plan['target_duration']
         if parent_project is not None and len(plan["clips"]) != 1:
             raise ValidationError("A replacement binds one parent generation segment; use one approved request, not a multi-clip child")
         _validate_plan(plan, keeps)
+        previous_exit = None
+        if parent_project is not None and replace_clip > 1:
+            preceding = original['clips'][replace_clip-2]
+            previous_exit = preceding.get('exit_state', preceding['transition_out'])
+        prompt_design.normalize(plan, previous_exit=previous_exit)
+        if parent_project is not None:
+            if replace_clip < len(original['clips']):
+                following = original['clips'][replace_clip]
+                if following.get('transition_mode') == 'match_action' and plan['clips'][0]['exit_state'] != following['entry_state']:
+                    raise ValidationError('替换段的出场状态必须保留下一段动作接续所用的边界状态')
+            # A replacement keeps its position in the complete ad, not a new intro/finale.
+            plan['clips'][0]['sequence_context'] = {
+                'segment': replace_clip, 'count': len(original['clips']),
+                'previous_exit': original['clips'][replace_clip-2].get('exit_state', original['clips'][replace_clip-2]['transition_out']) if replace_clip > 1 else '',
+                'next_entry': original['clips'][replace_clip].get('entry_state', original['clips'][replace_clip]['transition_in']) if replace_clip < len(original['clips']) else '',
+            }
+        plan['prompt_model_family'] = cap['family']
         narration_window(plan, target_duration)
         for clip in plan["clips"]:
             clip["execution_reference_roles"] = execution_roles(plan, clip)
@@ -637,6 +689,13 @@ class AdOrchestrator:
             shots = materialize_shot_timeline(source["shots"], action_end)
             for shot, original_shot in zip(shots, source["shots"]):
                 shot["shot_id"] = original_shot["shot_id"]
+                if plan.get("sound_scope"):
+                    cues = {"sfx": original_shot.get("sfx")}
+                    if audio_routing.full_mix(plan):
+                        for key in ("music", "ambience"):
+                            cues[key] = original_shot.get("audio", {}).get(key)
+                    if any(cues.values()):
+                        shot["sound_cues"] = {key: value for key, value in cues.items() if value}
             panel_count = len(shots)
             clip = {
                 "index": index,
@@ -669,6 +728,8 @@ class AdOrchestrator:
                 "talent_action": str(source.get("talent_action") or ""),
                 "sfx": source["sfx"],
                 "audio": copy.deepcopy(source.get("audio", {})),
+                "sequence_context": copy.deepcopy(source['sequence_context']),
+                "transition_mode": source['transition_mode'],
             }
             clip["storyboard_prompt"] = builder.storyboard_prompt(clip)
             if cap["family"] != "omni":
@@ -712,6 +773,8 @@ class AdOrchestrator:
             provider_model=cap['model'], resolution=source_resolution, strategy_policy=strategy or config.get('strategy','auto'),
             budget=caps.budget_contract(plan, len(clips), len(chunks)), narration_chunks=chunks,
             audio=copy.deepcopy(plan['audio']))
+        provider_contract['prompt_limits'] = prompt_limits.validate_routes(
+            plan.get('prompt_limits', config.get('prompt_limits', {})))
         if cap['family'] != 'omni':
             provider_contract.update(upstream_duration=None, mode='reference', max_reference_images=cap['images'])
             provider_contract['fallback']['enabled'] = False
@@ -766,18 +829,24 @@ class AdOrchestrator:
         image_attempts = image_config.get("max_attempts_per_asset", 2)
         state["reference_asset_plan"]["maximum_image_calls"] = (
             state["reference_asset_plan"]["minimum_imagegen_calls"] * image_attempts)
+        prompt_report = prompt_limits.inspect_project(state)
         self.project_dir.mkdir(parents=True, exist_ok=True)
         for name in ("references", "requests", "audio", "clips/raw", "clips/normalized", "final", "qa/frames"):
             (self.project_dir / name).mkdir(parents=True, exist_ok=True)
         atomic_write_json(self.state_path, state)
+        atomic_write_json(self.project_dir / 'prompt-check.json', prompt_report)
         (self.project_dir / "plan.md").write_text(_render_plan(state), encoding="utf-8")
         return state
 
     @exclusive_project
-    def approve_plan(self) -> dict[str, Any]:
+    def approve_plan(self, *, copy_effects: str | None = None) -> dict[str, Any]:
         state = self.load()
         if state["state"] != "awaiting_plan_approval":
             raise ValidationError("Plan can only be approved from awaiting_plan_approval")
+        if state["plan"].get("prompt_design_version") == 2:
+            expected = "on" if state["plan"]["copy_effects"] else "off"
+            if copy_effects != expected:
+                raise ValidationError("请记录用户的文案选择 --copy-effects on/off；与展示方案不符时先按选择更新镜头与方案")
         self._validate_source_files(state)
         state["approvals"] = {"plan": canonical_hash(_plan_contract(state))}
         state["state"] = "awaiting_reference_approval"
@@ -1062,6 +1131,7 @@ class AdOrchestrator:
             raise ValidationError("No known Omni task_id exists; preserve this project for provider review")
         self.ledger.schema_version = state["schema_version"]
         self.ledger.budget = state["provider_contract"].get("budget")
+        self.ledger.prompt_limits = state['provider_contract'].get('prompt_limits', {})
         state["state"] = "generating"
         state.pop("last_error", None)
         self.save(state)
@@ -1119,6 +1189,8 @@ class AdOrchestrator:
             raise
 
     def _preflight_core(self, state: dict[str, Any]) -> dict[str, Any]:
+        if prompt_design.enabled(state['plan']):
+            prompt_limits.inspect_project(state)
         require_media_tools()
         if not shutil.which("cloudflared"):
             raise ValidationError("cloudflared is required")
@@ -1457,7 +1529,7 @@ class AdOrchestrator:
             if replacement:
                 if digest != replacement["sha256"]:
                     raise ValidationError("Assembly input does not match the approved replacement")
-                for key in ("shots", "storyboard_panel_count", "transition_in", "transition_out", "trim_start", "audio"):
+                for key in ("shots", "storyboard_panel_count", "transition_in", "transition_out", "trim_start", "audio", "sfx"):
                     if key in replacement["clip"]:
                         clip[key] = copy.deepcopy(replacement["clip"][key])
             elif not any(t.get("clip_index") == clip["index"] and t.get("downloaded")
@@ -1465,7 +1537,8 @@ class AdOrchestrator:
                 raise ValidationError("Assembly input is not the downloaded result for its planned clip")
             if state["schema_version"] >= 9 and state["provider_contract"]["capabilities"]["family"] != "omni":
                 advanced.validate_source_video(source, state)
-            if state["schema_version"] >= 10 and audio_routing.native(state["plan"]):
+            if (state["schema_version"] >= 10 and (audio_routing.native(state["plan"]) or state["plan"].get("prompt_design_version") == 2)
+                    and not audio_routing.mute_source(state["plan"], clip)):
                 info = probe_media(source)
                 end = float(clip.get("trim_start", 0)) + float(clip["keep_duration"])
                 if not info["has_audio"] or info["audio_duration"] + 1/30 + .002 < end:
@@ -1489,6 +1562,7 @@ class AdOrchestrator:
                     float(clip["keep_duration"]),
                     target_width=int(state["target"]["width"]),
                     target_height=int(state["target"]["height"]),
+                    **({"mute_source": True} if audio_routing.mute_source(state["plan"], clip) else {}),
                     **({"trim_start": float(clip["trim_start"])} if clip.get("trim_start") else {}),
                     **({"align_frames": True} if state["schema_version"] >= 9 else {}),
                 )
@@ -1521,6 +1595,7 @@ class AdOrchestrator:
             narration_expected=bool(state["plan"]["narration"]["enabled"]),
             expected_width=int(state["target"]["width"]),
             expected_height=int(state["target"]["height"]),
+            **({"check_dry_audio": True} if state["plan"].get("prompt_design_version") == 2 and not audio_routing.full_mix(state["plan"]) else {}),
             **({"expected_frames": state["target"]["frames"]} if state["schema_version"] >= 9 else {}),
         )
         assembly = {"target": state["target"], "clips": assembly_rows,
@@ -1611,28 +1686,42 @@ class AdOrchestrator:
         checks = review.get("checks")
         if not isinstance(checks, dict):
             raise ValidationError("Creative review requires a checks object")
-        missing = [key for key in CREATIVE_REVIEW_CHECKS if not isinstance(checks.get(key), bool)]
+        required = CREATIVE_REVIEW_CHECKS if state["plan"].get("prompt_design_version") == 2 else LEGACY_REVIEW_CHECKS
+        multi = state["plan"].get("sound_scope") == "multi"
+        if audio_routing.full_mix(state["plan"]):
+            required = LEGACY_REVIEW_CHECKS + ("voice_identity_consistent",)
+        elif multi:
+            required += ("sfx_consistent",)
+        missing = [key for key in required if not isinstance(checks.get(key), bool)]
         if missing:
             raise ValidationError("Creative review requires boolean checks: " + ", ".join(missing))
         reviewer = str(review.get("reviewer") or "").strip()
         if not reviewer:
             raise ValidationError("Creative review requires reviewer")
-        passed = all(checks[key] for key in CREATIVE_REVIEW_CHECKS)
+        failed = {key for key in required if not checks[key]}
+        passed = not failed
+        notes = str(review.get("notes") or "").strip()
+        handoff = multi and bool(failed) and failed <= {"voice_identity_consistent", "sfx_consistent"}
+        if handoff and not notes:
+            raise ValidationError("请在 notes 记录需人工处理的片段或时间点及声音差异")
+        status = "audio_edit_required" if handoff else ("pass" if passed else "failed")
         creative_review = {
-            "status": "pass" if passed else "failed",
+            "status": status,
             "reviewer": reviewer,
-            "checks": {key: checks[key] for key in CREATIVE_REVIEW_CHECKS},
-            "notes": str(review.get("notes") or "").strip(),
+            "checks": {key: checks[key] for key in required},
+            "notes": notes,
         }
         qa["creative_review_status"] = creative_review["status"]
         qa["creative_review"] = creative_review
-        qa["status"] = "pass" if passed else "awaiting_manual_review"
+        qa["status"] = status if passed or handoff else "awaiting_manual_review"
         atomic_write_json(qa_path, qa)
-        state["state"] = "delivered" if passed else "awaiting_manual_review"
+        state["state"] = "delivered" if passed or handoff else "awaiting_manual_review"
         self.save(state)
         manifest["status"] = state["state"]
         manifest["qa_status"] = qa["status"]
         manifest["creative_review_status"] = creative_review["status"]
+        if handoff:
+            manifest["audio_edit"] = {"notes": notes, "clips": assembly["clips"], "narration": assembly.get("narration")}
         manifest["manual_review_required"] = not passed
         atomic_write_json(manifest_path, manifest)
         (self.project_dir / "delivery.md").write_text(_render_delivery(manifest), encoding="utf-8")
@@ -1685,6 +1774,8 @@ class AdOrchestrator:
             raise ValidationError("Final reference approval is required before preflight or generation")
         self._validate_plan_approval(state)
         self._validate_reference_files(state)
+        if prompt_design.enabled(state['plan']):
+            prompt_limits.inspect_project(state)
         expected = state.get("approvals", {}).get("references")
         if not expected or expected != canonical_hash(_reference_contract(state)):
             raise ValidationError("References or prompts changed after approval")
@@ -1721,7 +1812,10 @@ def _validate_analysis(analysis: dict[str, Any]) -> None:
     fictional = analysis.get("source_mode") == "authorized_fictional_concept"
     if fictional and (analysis.get("fictional") is not True or not str(analysis.get("user_authorization") or "").strip()):
         raise ValidationError("Fictional concept mode requires explicit recorded user authorization")
-    minimum = 0 if fictional else 1
+    scripted = analysis.get("source_mode") == "promotional_script"
+    if scripted and (not isinstance(analysis.get("script_brief"), str) or not analysis["script_brief"].strip() or source_images != []):
+        raise ValidationError("脚本宣传片须提供 script_brief；要复现真实商品请使用商品图流程")
+    minimum = 0 if fictional or scripted else 1
     if not isinstance(source_images, list) or not minimum <= len(source_images) <= 6:
         raise ValidationError("analysis.source_images must contain 1 to 6 local product-image paths")
     if any(not str(path or "").strip() for path in source_images):
@@ -1834,10 +1928,15 @@ def _validate_plan(plan: dict[str, Any], keep_durations: list[float]) -> None:
             "camera",
             "transition_in",
             "transition_out",
-            "sfx",
         ):
             if not str(row.get(key) or "").strip():
                 raise ValidationError(f"Each plan clip requires {key}")
+        if plan.get("prompt_design_version") == 2:
+            if not isinstance(row.get("sfx"), str):
+                raise ValidationError("每段须填写 sfx，明确无动作音效时填写空字符串")
+            row["sfx"] = row["sfx"].strip()
+        elif not str(row.get("sfx") or "").strip():
+            raise ValidationError("Each plan clip requires sfx")
         narrative_role = str(row["narrative_role"]).strip()
         if narrative_role in seen_narrative_roles:
             raise ValidationError("Each clip narrative_role must be distinct across the complete advertisement")
@@ -1961,7 +2060,7 @@ def _shot_time_range(clip: dict[str, Any], shot: dict[str, Any], *, global_time:
 
 def _render_plan(state: dict[str, Any]) -> str:
     # Include the same image model/cost contract in both legacy and extended reports.
-    image_header = image_api.render_contract(state)
+    image_header = image_api.render_contract(state) + prompt_design.summary(state) + prompt_limits.render(state)
     if state.get("schema_version", 0) >= 9 and advanced.needs_extended_report(state):
         return image_header + advanced.render_plan(state)
     narration = state["plan"]["narration"]
@@ -2042,7 +2141,7 @@ def _render_plan(state: dict[str, Any]) -> str:
         for shot in clip["shots"]:
             if shot.get("graphics"):
                 lines.append(f"- 镜头 {shot['index']} 图文与特效：{graphics_direction(shot)}")
-    lines += ["", "等待确认：**确认方案，生成参考图**", ""]
+    lines += ["", prompt_design.COPY_QUESTION if state["plan"].get("prompt_design_version") == 2 else "等待确认：**确认方案，生成参考图**", ""]
     link = state["plan"].get("replacement_for")
     if link:
         lines[2:2] = [f"**本项目只替换原广告第 {link['clip_index']} 段；最终交付仍为 {link['target']['duration']} 秒完整广告。**",
@@ -2058,8 +2157,9 @@ def _render_plan(state: dict[str, Any]) -> str:
 
 
 def _render_reference_approval(state: dict[str, Any]) -> str:
+    continuity_header = prompt_design.summary(state)
     if state.get("schema_version", 0) >= 9 and advanced.needs_extended_report(state):
-        return advanced.render_references(state)
+        return continuity_header + advanced.render_references(state)
     narration = state["plan"]["narration"]
     narration_summary = audio_routing.summary(state["plan"]) if state.get("schema_version", 0) >= 10 else (
         f"启用，{narration['voice_name']}（{narration['voice_id']}）"
@@ -2180,7 +2280,7 @@ def _render_reference_approval(state: dict[str, Any]) -> str:
               f"旁白窗口：{narration_window({'narration': voice}, full_duration)}（起始秒，最多持续秒）；与分段无关。" if voice['enabled'] else ""]
     if state.get("schema_version",0)>=9:
         lines += ["", advanced.frozen_summary(state)]
-    return "\n".join(lines)
+    return continuity_header + "\n".join(lines)
 
 
 def _render_delivery(manifest: dict[str, Any]) -> str:
@@ -2190,14 +2290,22 @@ def _render_delivery(manifest: dict[str, Any]) -> str:
         if creative == "pass"
         else "尚未通过逐镜观看与试听，当前文件不得标记为最终交付。"
     )
+    handoff = manifest.get("audio_edit", {})
+    sources = []
+    if handoff:
+        creative_note = "声音差异已记录，素材已交付人工后期。"
+        sources = [handoff["notes"], *[f"- 第 {c['clip_index']} 段原片：{c['path']}" for c in handoff["clips"]]]
+        if handoff.get("narration"):
+            sources.append(f"- 独立旁白：{handoff['narration']['path']}")
     return "\n".join(
         [
             f"# 3D sygg 交付：{manifest['project_id']}",
             "",
             f"- 状态：{manifest['status']}",
-            f"- 最终视频：{manifest['final_video']}",
-            f"- 技术 QA：{manifest['qa_status']}",
+            f"- {'待调音拼接版' if handoff else '最终视频'}：{manifest['final_video']}",
+            f"- 技术 QA：{manifest.get('technical_qa_status', manifest['qa_status'])}",
             f"- 创意复核：{creative_note}",
+            *sources,
             "",
         ]
     )
@@ -2247,6 +2355,8 @@ def _parser() -> argparse.ArgumentParser:
     ):
         item = sub.add_parser(command)
         item.add_argument("--project", type=Path, required=True)
+        if command == "approve-plan":
+            item.add_argument("--copy-effects", choices=["on", "off"], help="user choice at first approval")
         if command == "preflight":
             item.add_argument("--verify-tunnel", action="store_true", help="optional publication diagnostic")
         if command == "complete-review":
@@ -2262,6 +2372,7 @@ def _parser() -> argparse.ArgumentParser:
     config.add_argument('--provider', default='auto', choices=['auto','wxart','cangyuan'])
     config.add_argument('--output-resolution', default='720p', choices=['720p','1080p'])
     config.add_argument('--strategy', default='auto', choices=['auto', *caps.STRATEGIES])
+    config.add_argument('--prompt-limits', type=Path, help='JSON mapping provider:model to documented character/UTF-8 byte limits; no guessed defaults')
     check = sub.add_parser('check-channel', help='GET-only model visibility; never a generation test')
     check.add_argument('--model', required=True)
     check.add_argument('--provider', default='auto', choices=['auto','wxart','cangyuan'])
@@ -2286,7 +2397,8 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "capabilities":
         result = {name: caps.route(name) for name in caps.ROUTES}
     elif args.command == "configure":
-        result = caps.configure(args.model, args.provider, args.output_resolution, args.strategy)
+        result = caps.configure(args.model, args.provider, args.output_resolution, args.strategy,
+            prompt_limits_config=_read_json(args.prompt_limits) if args.prompt_limits else None)
     elif args.command == "check-channel":
         result = advanced.check_channel(caps.route(args.model, args.provider))
     elif args.command == "review-continuity":
@@ -2301,7 +2413,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         orchestrator = AdOrchestrator(args.project)
         if args.command == "approve-plan":
-            result = orchestrator.approve_plan()
+            result = orchestrator.approve_plan(copy_effects=args.copy_effects)
         elif args.command == "register-references":
             result = orchestrator.register_references(_read_json(args.manifest))
         elif args.command == "approve-references":

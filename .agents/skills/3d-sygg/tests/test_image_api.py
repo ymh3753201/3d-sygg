@@ -52,7 +52,7 @@ class ImageAPI(unittest.TestCase):
         self.o = AdOrchestrator.create('images-test', self.root)
         self.analysis = analysis_with_source(self.root)
         self.o.prepare(self.analysis, sample_plan(), target_duration=10)
-        self.o.approve_plan()
+        self.o.approve_plan(copy_effects="on")
         self.inputs = [r['path'] for r in self.o.load()['source_assets']]
 
     def tearDown(self):
@@ -117,7 +117,7 @@ class ImageAPI(unittest.TestCase):
         self.config['async'] = {'id_path': 'id', 'poll_path': '/tasks/{task_id}',
             'status_path': 'status', 'success': ['done'], 'failure': ['failed']}
         self.o = AdOrchestrator.create('async-images', self.root)
-        self.o.prepare(self.analysis, sample_plan(), target_duration=10); self.o.approve_plan()
+        self.o.prepare(self.analysis, sample_plan(), target_duration=10); self.o.approve_plan(copy_effects="on")
         self.inputs = [r['path'] for r in self.o.load()['source_assets']]
         self.assertEqual(self.generate()['status'], 'pending')
         self.status = 'done'
@@ -205,7 +205,7 @@ class ImageAPI(unittest.TestCase):
 
     def test_human_scene_uses_both_real_global_images(self):
         self.o = AdOrchestrator.create('human-images', self.root)
-        self.o.prepare(self.analysis, sample_plan(human=True), target_duration=10); self.o.approve_plan()
+        self.o.prepare(self.analysis, sample_plan(human=True), target_duration=10); self.o.approve_plan(copy_effects="on")
         self.inputs = [r['path'] for r in self.o.load()['source_assets']]
         master = self.generate()
         with mock.patch.object(images.ImageClient, 'image_bytes', return_value=png_bytes(52)):
@@ -223,7 +223,7 @@ class ImageAPI(unittest.TestCase):
                           'narration_call_upper_cny': 5, 'quote_checked_at': 'offline-test-only'}
         self.o.prepare(self.analysis, plan, target_duration=10,
             model='sd11-seedance-2.0', strategy='ordered_keyframes', validation_run=True)
-        self.o.approve_plan(); self.inputs = [r['path'] for r in self.o.load()['source_assets']]
+        self.o.approve_plan(copy_effects="on"); self.inputs = [r['path'] for r in self.o.load()['source_assets']]
         master = self.generate(); rows = [self.master_row(master)]
         for i, shot in enumerate(self.o.load()['clips'][0]['shots']):
             with mock.patch.object(images.ImageClient, 'image_bytes', return_value=png_bytes(60+i)):
@@ -239,7 +239,7 @@ class ImageAPI(unittest.TestCase):
         self.config['async'] = {'id_path': 'id', 'poll_path': '/tasks/{task_id}',
             'status_path': 'status', 'success': ['done'], 'failure': ['failed']}
         self.o = AdOrchestrator.create('failed-images', self.root)
-        self.o.prepare(self.analysis, sample_plan(), target_duration=10); self.o.approve_plan()
+        self.o.prepare(self.analysis, sample_plan(), target_duration=10); self.o.approve_plan(copy_effects="on")
         self.inputs = [r['path'] for r in self.o.load()['source_assets']]
         with self.assertRaises(ProviderError): self.generate()
         with self.assertRaises(PaidRequestBlocked): self.generate(resume=True)

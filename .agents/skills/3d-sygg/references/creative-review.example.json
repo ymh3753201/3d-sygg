@@ -6,7 +6,12 @@
     "approved_copy_only": true,
     "no_collage_grid_or_unwanted_text": true,
     "visual_quality_professional": true,
-    "audio_review_passed": true
+    "audio_review_passed": true,
+    "motion_and_transitions_coherent": true,
+    "talent_identity_and_anatomy_preserved": true,
+    "voice_identity_consistent": true,
+    "no_background_music_or_ambience": true,
+    "sfx_consistent": true
   },
   "notes": "逐镜对照已批准分镜、检查商品与文字，并实际试听后填写。"
 }

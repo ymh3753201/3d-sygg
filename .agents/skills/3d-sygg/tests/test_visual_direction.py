@@ -42,12 +42,12 @@ class VisualDirectionTests(unittest.TestCase):
                 self.assertIn(row['content'], prompt); self.assertIn(row['direction'], prompt)
             self.assertEqual(prompt.count(graphic[0]['direction']), 1)
         _, _, rows = fixtures.StateWorkflowTests._reference_rows(self, project, 1)
-        project.approve_plan(); project.register_references({'references':rows}); project.approve_references()
+        project.approve_plan(copy_effects="on"); project.register_references({'references':rows}); project.approve_references()
         for filename in ('plan.md','reference-approval.md'):
             self.assertIn(graphic[0]['direction'], (project.project_dir/filename).read_text())
 
     def test_approved_graphic_motion_cannot_change_without_confirmation(self):
-        project = self.project(); project.approve_plan()
+        project = self.project(); project.approve_plan(copy_effects="on")
         state = project.load(); state['clips'][0]['shots'][1]['graphics'][0]['direction'] = '另一种未批准动作'
         with self.assertRaisesRegex(pv.ValidationError, 'Plan changed'):
             project._validate_plan_approval(state)

@@ -665,6 +665,13 @@ class OmniClient:
         if max_retries and reference_bindings is None:
             raise ValidationError("Automatic video retries require immutable reference bindings")
         payload = self.build_payload(prompt, image_urls, aspect_ratio=aspect_ratio)
+        # Check the actual outgoing prompt before a durable attempted/paid record.
+        try:
+            from . import prompt_limits
+        except ImportError:
+            import prompt_limits
+        route = f"{'wxart' if self.provider_name == 'omni' else self.provider_name}:{payload['model']}"
+        prompt_limits.check(payload['prompt'], getattr(self.ledger, 'prompt_limits', {}).get(route), label=route)
         if reference_bindings is not None:
             if len(reference_bindings) != len(image_urls):
                 raise ValidationError("Omni reference binding count must match images_url")

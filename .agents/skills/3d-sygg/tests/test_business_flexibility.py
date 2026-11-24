@@ -49,7 +49,7 @@ class BusinessFlexibilityTests(unittest.TestCase):
             self.assertEqual(state['paid_counts']['omni'], count)
             self.assertAlmostEqual(state['clips'][-1]['global_end'], duration)
             self.assertTrue(all(c['upstream_duration'] == 10 for c in state['clips']))
-            project.approve_plan()
+            project.approve_plan(copy_effects="on")
             self.assertEqual(project.load()['target']['duration'], duration)
 
     def test_mixed_product_and_talent_segments_bind_only_actual_cast(self):
@@ -70,7 +70,7 @@ class BusinessFlexibilityTests(unittest.TestCase):
         talent.write_bytes(fixtures.png_bytes(765))
         rows.append({'role': 'talent', 'path': str(talent), 'origin': 'codex_imagegen'})
         rows[2]['derived_from_talent_sha256'] = pv.sha256_file(talent)
-        project.approve_plan()
+        project.approve_plan(copy_effects="on")
         project.register_references({'references': rows})
         project.approve_references()
         bindings = project.load()['reference_sets']

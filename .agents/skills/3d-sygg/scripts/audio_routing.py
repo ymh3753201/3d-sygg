@@ -18,6 +18,11 @@ def normalize_plan(plan):
     audio = plan.setdefault('audio', {})
     if not isinstance(audio, dict):
         raise ValidationError('plan.audio must be an object')
+    if 'omit_background' in audio and not isinstance(audio['omit_background'], bool):
+        raise ValidationError('audio.omit_background must be a boolean')
+    if plan.get('prompt_design_version') == 2 and any(
+            key in audio for key in ('reference_audio', 'reference_audios', 'voice_reference')):
+        raise ValidationError('当前通道适配器未开放语音参考上传；请在方案中明确可执行的声音来源')
     narration = plan.setdefault('narration', {'enabled': False, 'text': '',
         'reason': '声音由视频模型生成，未请求独立配音'})
     if not isinstance(narration, dict):
@@ -54,7 +59,20 @@ def native(plan):
     return plan.get('audio', {}).get('mode') == 'video'
 
 
+def full_mix(plan):
+    return plan.get('sound_scope') == 'single' and not plan['audio'].get('omit_background', False)
+
+
+def mute_source(plan, clip):
+    """Discard the provider mix only for an explicitly sound-free picture segment."""
+    return (plan.get('prompt_design_version') == 2 and not full_mix(plan) and clip.get('sfx') == ''
+            and not any(s.get('sound_cues', {}).get('sfx') for s in clip.get('shots', []))
+            and not clip.get('audio', {}).get('speech_text'))
+
+
 def prompt(plan, clip):
+    if plan.get('prompt_design_version') in (1, 2):
+        return compact_prompt(plan, clip)
     audio = plan.get('audio')
     if not audio:
         sound = str(clip.get('sfx', '')).replace(LEGACY_CONSTRAINT, '').strip(' .;。；')
@@ -85,10 +103,66 @@ def prompt(plan, clip):
     return ' '.join(lines)
 
 
+def compact_prompt(plan, clip):
+    """Text-only audio direction; no reference files or extra service calls."""
+    audio = plan['audio']
+    value = {**audio.get('shared', {}), **clip.get('audio', {})}
+    parts = ['Generate synchronized audio with the video.',
+             'Overall sound: ' + plan['audiovisual_tone']]
+    dry = plan.get('prompt_design_version') == 2 and not full_mix(plan)
+    if mute_source(plan, clip):
+        return 'No speech, music, ambience or sound effects. This picture segment is edited without source audio.'
+    if dry:
+        parts = ['Generate synchronized audio with the video. Only approved speech and discrete action SFX. No background music, environmental ambience, room tone or continuous background bed. Leave gaps quiet.']
+    if full_mix(plan):
+        parts.append('Preserve the approved full sound design, including background music and environmental ambience where designed.')
+    for key, title in (('music', 'Music'), ('ambience', 'Ambience')):
+        if value.get(key):
+            parts.append(title + ': ' + value[key])
+    sound = str(clip.get('sfx', '')).replace(LEGACY_CONSTRAINT, '').strip(' .;。；')
+    shot_cues = [f"Shot {shot['shot_id']}: {json.dumps(shot['sound_cues'], ensure_ascii=False)}"
+                for shot in clip.get('shots', []) if shot.get('sound_cues')]
+    parts.append('Action SFX: ' + (sound or ('follow shot cues' if shot_cues else 'none')))
+    parts.extend(shot_cues)
+    if audio['mode'] == 'external' or not audio['speech']:
+        parts.append('No dialogue, no human voice, no speech; action SFX only.' if dry else
+                     'No dialogue, no human voice, no speech; retain music, ambience and SFX.')
+    elif value.get('speech_text'):
+        start = float(clip.get('trim_start', 0)) + float(clip.get('overlap_frames', 0)) / 30
+        end = float(clip.get('trim_start', 0)) + float(clip['keep_duration']) - max(
+            float(clip.get('tail_margin', 0)), float(clip.get('next_overlap_frames', 0)) / 30)
+        if end <= start:
+            raise ValidationError('转场后没有足够的原生台词窗口；请调整台词或分段')
+        parts.extend([
+            f"Speaker {value.get('speaker_id', 'narrator')}: {value.get('voice', '')}",
+            'Speak exactly once: ' + json.dumps(value['speech_text'], ensure_ascii=False),
+            f'Complete all speech within [{start:.2f}-{end:.2f}s]; no extra words or cut-off syllables.',
+            'Off-screen narration unless the approved shot explicitly requires visible speech; then synchronize lips. Keep speech clear above action effects.'])
+    else:
+        parts.append('No approved spoken words in this segment; do not invent dialogue.')
+    context = clip.get('sequence_context', {})
+    if dry:
+        return '\n'.join(parts)
+    if context.get('count', 1) > 1:
+        parts.append('Across segments: same musical palette/tempo and acoustic space, except approved changes below.' +
+                     (' Keep each speaker timbre/delivery consistent.' if audio['mode'] == 'video' and audio['speech'] else ''))
+        if value.get('change_reason'):
+            parts.append('Approved sound change: ' + value['change_reason'] + '; use the segment directions above for this change.')
+        if context.get('previous_exit'):
+            parts.append('Continue sound; no fresh intro or opening sting.')
+        if context.get('next_entry'):
+            parts.append('No musical finale or fade-out here unless designed.')
+    if value.get('change_reason'):
+        parts.append('Intentional local sound change: ' + value['change_reason'])
+    return '\n'.join(parts)
+
+
 def summary(plan):
     if native(plan):
         texts = [c.get('audio', {}).get('speech_text', '') for c in plan.get('clips', [])]
-        return '视频模型生成人声、音效、背景音乐与环境音；独立语音调用 0 次。' + (
+        direction = ('视频模型生成批准的人声和动作音效；无配乐、无环境底声；独立语音调用 0 次。'
+                     if plan.get('prompt_design_version') == 2 and not full_mix(plan) else '视频模型按方案生成人声、音效、背景音乐与环境音；独立语音调用 0 次。')
+        return direction + (
             '批准台词：' + ' / '.join(t for t in texts if t) if any(texts) else '本方案未安排台词。')
     n = plan.get('replacement_for', {}).get('narration', plan['narration'])
     return ('用户明确要求独立配音：' + n['text']) if n['enabled'] else '未启用独立配音：' + n.get('reason', '')

@@ -7,7 +7,8 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / '.agents/skills/3d-sygg'
-VERSION = 'v2.3.0'
+VERSION = 'v2.4.0'
+RELEASE_DATE = '2026-11-24'
 REPORTS = {'audio-default-policy.md', 'image-api-validation.md', 'offline-tests.json', 'practical-repairs-20260929.md',
            'practical-repairs-tests.json', 'upgrade-validation.md'}
 
